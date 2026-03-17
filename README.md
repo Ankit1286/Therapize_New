@@ -10,16 +10,16 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         DATA PIPELINE                               │
 │                                                                     │
-│  Psychology Today ──┐                                               │
-│  TherapyDen ────────┼──► Scraper (Playwright) ──► Cleaner ──► DB   │
-│  ZocDoc ────────────┘         │                              │      │
-│                               ▼                              ▼      │
-│                         Rate Limiter              PostgreSQL +       │
-│                         Proxy Rotation             pgvector          │
-│                         Robots.txt check          (therapist         │
-│                                                    profiles +        │
-│                                                    embeddings)       │
-└──────────────────────────────────────────┬──────────────────────────┘
+│  OpenPath Collective ──► Algolia API (JSON) ──┐                     │
+│  GoodTherapy ──────────► HTML scraping ───────┼──► Cleaner ──► DB   │
+│                          (httpx + BS4)        │              │      │
+│                               │               │              ▼      │
+│                               ▼               │    PostgreSQL +     │
+│                         Rate Limiter          │     pgvector        │
+│                         Robots.txt check      │    (therapist       │
+│                                               │     profiles +      │
+│                                               │     embeddings)     │
+└──────────────────────────────────────────┬────┴─────────────────────┘
                                            │
 ┌──────────────────────────────────────────▼──────────────────────────┐
 │                       MATCHING ENGINE (Core)                         │
@@ -32,12 +32,12 @@
 │  │   LangGraph  │    │           Scoring Pipeline            │       │
 │  │   Workflow   │    │                                       │       │
 │  │              │    │  1. Hard Filter (location/insurance)  │       │
-│  │  ┌─────────┐ │    │  2. Modality Match Score (0-1)        │       │
+│  │  ┌─────────┐ │    │  2. Modality Match Score (0.40)       │       │
 │  │  │  Query  │ │    │     concerns → modalities → therapist │       │
-│  │  │Processor│─┼───►│  3. BM25 Lexical Score (0-1)          │       │
-│  │  │  (LLM)  │ │    │  4. Semantic Vector Score (0-1)       │       │
-│  │  └─────────┘ │    │  5. Composite Score = weighted sum    │       │
-│  │              │    │  6. Cross-encoder Rerank (top-20)     │       │
+│  │  │Processor│─┼───►│  3. Semantic Vector Score  (0.35)     │       │
+│  │  │  (LLM)  │ │    │  4. BM25 Lexical Score     (0.15)     │       │
+│  │  └─────────┘ │    │  5. Quality Score           (0.10)    │       │
+│  │              │    │  6. Composite Score = weighted sum    │       │
 │  │  Extracts:   │    └──────────────────────────────────────┘       │
 │  │  - concerns  │                                                   │
 │  │  - modalities│                                                   │
@@ -108,6 +108,11 @@
 - Enables cost tracking per query
 - Enables prompt regression testing
 
+### Scrapers: Algolia API (OpenPath) + HTML (GoodTherapy)
+- **OpenPath**: queries the Algolia search API directly — fast, structured JSON, no HTML parsing
+- **GoodTherapy**: BeautifulSoup HTML scraping; selectors centralized for easy maintenance
+- Both use `httpx` async HTTP — no Playwright or headless browser required
+
 ---
 
 ## Matching Algorithm Deep Dive
@@ -130,17 +135,13 @@ Step 2 — Modality Mapper (knowledge base lookup):
   recommended_modalities = {CBT: 0.9, EMDR: 0.7, ACT: 0.8, DBT: 0.6, ...}
 
 Step 3 — Hybrid Scoring (per therapist):
-  modality_score  = overlap(therapist.modalities, recommended_modalities)  [weight: 0.4]
+  modality_score  = overlap(therapist.modalities, recommended_modalities)  [weight: 0.40]
   semantic_score  = cosine_sim(query_embedding, therapist_embedding)        [weight: 0.35]
   bm25_score      = bm25(query_tokens, therapist_text)                      [weight: 0.15]
-  recency_score   = freshness of therapist profile                          [weight: 0.05]
-  review_score    = normalized rating                                        [weight: 0.05]
+  quality_score   = normalized rating × profile completeness                [weight: 0.10]
 
   final_score = weighted_sum(all scores)
-
-Step 4 — Cross-encoder Rerank:
-  Top 20 results re-scored by a cross-encoder (more accurate but slower)
-  Returns top 10 final results
+  → Returns top N results sorted by composite score
 ```
 
 ---
@@ -161,15 +162,21 @@ cp .env.example .env
 # 4. Run database migrations
 python scripts/migrate.py
 
-# 5. Seed therapist data (or run scraper)
-python scripts/seed_data.py          # fast: loads sample data
-python scripts/run_scraper.py        # slow: scrapes real data
+# 5. Load therapist data
+python scripts/seed_data.py        # fast: synthetic data (no scraping)
+python scripts/ingest_small.py     # real data: ~5 from each source (dev)
+python scripts/run_ingestion.py    # real data: full scale
 
 # 6. Start API
 uvicorn src.api.main:app --reload --port 8000
 
 # 7. Start frontend
 streamlit run frontend/app.py
+```
+
+**Standalone demo** (no DB or Redis required — just `ANTHROPIC_API_KEY`):
+```bash
+python demo.py "I have anxiety and trouble sleeping"
 ```
 
 ---
@@ -218,15 +225,15 @@ Therapize/
 │   ├── config.py                    # Pydantic settings (all config in one place)
 │   ├── models/                      # Data contracts
 │   │   ├── therapist.py             # Therapist profile schema
-│   │   ├── query.py                 # Search request/response
-│   │   └── ranking.py               # Scored result models
+│   │   └── query.py                 # Search request/response
 │   ├── scrapers/                    # Data collection
 │   │   ├── base.py                  # Abstract scraper with retry/rate-limit
-│   │   └── psychology_today.py      # PT-specific scraper
+│   │   ├── open_path.py             # Algolia API scraper (OpenPath Collective)
+│   │   └── good_therapy.py          # HTML scraper (GoodTherapy.org)
 │   ├── pipeline/                    # Data pipeline
 │   │   ├── ingestion.py             # Orchestrates scraping → DB
 │   │   ├── cleaner.py               # Normalize + validate scraped data
-│   │   └── embeddings.py            # Batch embedding generation
+│   │   └── embeddings.py            # Batch embedding generation (local, free)
 │   ├── matching/                    # Core matching engine
 │   │   ├── query_processor.py       # LLM query understanding
 │   │   ├── modality_mapper.py       # Concerns → modalities
@@ -258,11 +265,10 @@ Therapize/
 │   ├── unit/
 │   └── integration/
 ├── scripts/
-│   ├── run_scraper.py
-│   ├── seed_data.py
-│   └── migrate.py
-├── docker-compose.yml
-├── Dockerfile
+│   ├── ingest_small.py              # Scrape ~5 from each source (dev)
+│   ├── seed_data.py                 # Load synthetic data (no scraping)
+│   └── migrate.py                   # Run SQL migrations
+├── docker-compose.yml               # Local postgres + redis
 ├── requirements.txt
 └── .env.example
 ```

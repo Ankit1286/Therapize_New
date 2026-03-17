@@ -164,7 +164,7 @@ async def seed(count: int = 100) -> None:
     logger.info("Generating %d synthetic therapist profiles...", count)
     profiles = [_random_therapist() for _ in range(count)]
 
-    logger.info("Generating embeddings (this will call OpenAI)...")
+    logger.info("Generating embeddings (local sentence-transformers, no API cost)...")
     profile_embeddings = await embedding_pipeline.embed_profiles(profiles)
 
     logger.info("Storing to database...")

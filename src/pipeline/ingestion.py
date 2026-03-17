@@ -5,7 +5,8 @@ Run this on a schedule (weekly) to keep therapist data fresh.
 Supports incremental updates: only re-embeds profiles that changed.
 
 Usage:
-    python scripts/run_scraper.py --source psychology_today --max 500
+    python scripts/ingest_small.py    # ~5 from each source (dev)
+    python scripts/run_ingestion.py   # full scale
 """
 import asyncio
 import logging
@@ -14,7 +15,6 @@ from datetime import datetime
 
 from src.pipeline.cleaner import DataCleaner
 from src.pipeline.embeddings import EmbeddingPipeline
-from src.scrapers.psychology_today import PsychologyTodayScraper
 from src.scrapers.open_path import OpenPathScraper
 from src.scrapers.good_therapy import GoodTherapyScraper
 from src.storage.database import TherapistRepository, init_db
@@ -54,49 +54,6 @@ class IngestionPipeline:
         self._cleaner = DataCleaner()
         self._embedder = EmbeddingPipeline()
         self._repository = TherapistRepository()
-
-    async def run_psychology_today(
-        self,
-        max_therapists: int = 500,
-        max_pages: int = 25,
-    ) -> IngestionStats:
-        stats = IngestionStats(source="psychology_today")
-
-        # Stage 1: Scrape
-        scraper = PsychologyTodayScraper()
-        raw_profiles = await scraper.run(
-            max_therapists=max_therapists,
-            max_pages=max_pages,
-        )
-        stats.scraped = len(raw_profiles)
-
-        # Stage 2: Clean and validate
-        cleaned_profiles = []
-        for profile in raw_profiles:
-            cleaned = self._cleaner.clean(profile)
-            if cleaned:
-                cleaned_profiles.append(cleaned)
-        stats.cleaned = len(cleaned_profiles)
-        logger.info("Cleaned %d/%d profiles", stats.cleaned, stats.scraped)
-
-        # Stage 3: Generate embeddings (batched)
-        profile_embeddings = await self._embedder.embed_profiles(cleaned_profiles)
-        stats.embedded = sum(1 for _, emb in profile_embeddings if emb)
-
-        # Stage 4: Store in database
-        for profile, embedding in profile_embeddings:
-            if not embedding:
-                stats.failed += 1
-                continue
-            try:
-                await self._repository.upsert(profile, embedding)
-                stats.stored += 1
-            except Exception as exc:
-                logger.warning("Failed to store %s: %s", profile.name, exc)
-                stats.failed += 1
-
-        stats.log()
-        return stats
 
     async def run_open_path(
         self,

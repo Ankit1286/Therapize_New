@@ -7,8 +7,6 @@ Combines four signals into a single composite score:
   3. BM25 score       (0.15 weight) — keyword overlap
   4. Quality signals  (0.10 weight) — rating + recency
 
-Then re-ranks top-20 with a cross-encoder for precision.
-
 Why this architecture?
 - BM25 alone: misses semantic similarity ("panic" ≠ "anxiety" to BM25)
 - Vector alone: misses exact terms and modality domain knowledge
@@ -21,7 +19,7 @@ Latency budget: ~200ms for 1000 candidates
   - Vector ANN search: ~30ms
   - BM25: ~10ms
   - Score combination: ~5ms
-  - Cross-encoder rerank (top-20): ~80ms
+  - Score combination + sort: ~5ms
 """
 import logging
 import math
@@ -144,7 +142,7 @@ class HybridRanker:
         Args:
             candidates: Filtered therapist profiles
             query_text: Original user query text (for BM25)
-            query_embedding: Query vector (from OpenAI embedding model)
+            query_embedding: Query vector (from local sentence-transformers model)
             candidate_embeddings: Per-therapist embeddings (pre-computed, stored in pgvector)
             recommended_modalities: {modality_name: weight} from ModalityMapper
 
