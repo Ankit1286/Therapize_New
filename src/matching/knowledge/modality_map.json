@@ -1,0 +1,245 @@
+{
+  "_comment": "Maps emotional concerns/presenting problems to evidence-based therapy modalities with strength scores (0.0-1.0). Sources: APA Division 12, SAMHSA, NREPP. This is the domain knowledge that powers the matching engine.",
+  "_methodology": "Strength scores based on RCT evidence: 1.0=gold standard, 0.7=strong evidence, 0.5=moderate, 0.3=emerging",
+
+  "anxiety": {
+    "cognitive_behavioral_therapy": 1.0,
+    "acceptance_commitment_therapy": 0.9,
+    "exposure_therapy": 0.9,
+    "mindfulness_based": 0.8,
+    "dialectical_behavior_therapy": 0.6,
+    "emdr": 0.5,
+    "somatic": 0.5,
+    "humanistic": 0.4
+  },
+
+  "panic_disorder": {
+    "cognitive_behavioral_therapy": 1.0,
+    "exposure_therapy": 1.0,
+    "acceptance_commitment_therapy": 0.8,
+    "mindfulness_based": 0.7,
+    "emdr": 0.5
+  },
+
+  "depression": {
+    "cognitive_behavioral_therapy": 1.0,
+    "behavioral_activation": 0.9,
+    "interpersonal_therapy": 0.9,
+    "acceptance_commitment_therapy": 0.8,
+    "mindfulness_based": 0.8,
+    "psychodynamic": 0.7,
+    "humanistic": 0.6,
+    "dialectical_behavior_therapy": 0.5
+  },
+
+  "trauma": {
+    "emdr": 1.0,
+    "cognitive_processing_therapy": 1.0,
+    "trauma_informed": 1.0,
+    "somatic": 0.9,
+    "prolonged_exposure": 0.9,
+    "narrative_therapy": 0.7,
+    "mindfulness_based": 0.6,
+    "dialectical_behavior_therapy": 0.6
+  },
+
+  "ptsd": {
+    "emdr": 1.0,
+    "cognitive_processing_therapy": 1.0,
+    "trauma_informed": 1.0,
+    "prolonged_exposure": 1.0,
+    "somatic": 0.8,
+    "cognitive_behavioral_therapy": 0.8,
+    "mindfulness_based": 0.6
+  },
+
+  "relationship_issues": {
+    "gottman_method": 1.0,
+    "emotionally_focused_therapy": 1.0,
+    "family_systems": 0.9,
+    "cognitive_behavioral_therapy": 0.7,
+    "psychodynamic": 0.7,
+    "humanistic": 0.6,
+    "narrative_therapy": 0.5
+  },
+
+  "grief": {
+    "humanistic": 0.9,
+    "narrative_therapy": 0.9,
+    "acceptance_commitment_therapy": 0.8,
+    "psychodynamic": 0.8,
+    "mindfulness_based": 0.7,
+    "cognitive_behavioral_therapy": 0.6,
+    "somatic": 0.5
+  },
+
+  "self_esteem": {
+    "cognitive_behavioral_therapy": 0.9,
+    "acceptance_commitment_therapy": 0.9,
+    "humanistic": 0.9,
+    "psychodynamic": 0.7,
+    "narrative_therapy": 0.7,
+    "dialectical_behavior_therapy": 0.6
+  },
+
+  "stress_burnout": {
+    "acceptance_commitment_therapy": 0.9,
+    "mindfulness_based": 0.9,
+    "cognitive_behavioral_therapy": 0.8,
+    "solution_focused": 0.7,
+    "somatic": 0.7,
+    "humanistic": 0.6
+  },
+
+  "work_stress": {
+    "acceptance_commitment_therapy": 0.9,
+    "cognitive_behavioral_therapy": 0.8,
+    "solution_focused": 0.8,
+    "mindfulness_based": 0.7,
+    "motivational_interviewing": 0.6
+  },
+
+  "sleep_issues": {
+    "cbt_insomnia": 1.0,
+    "mindfulness_based": 0.8,
+    "acceptance_commitment_therapy": 0.7,
+    "somatic": 0.6
+  },
+
+  "insomnia": {
+    "cbt_insomnia": 1.0,
+    "mindfulness_based": 0.8,
+    "acceptance_commitment_therapy": 0.7,
+    "somatic": 0.5
+  },
+
+  "adhd": {
+    "cognitive_behavioral_therapy": 0.9,
+    "dialectical_behavior_therapy": 0.7,
+    "mindfulness_based": 0.7,
+    "solution_focused": 0.6,
+    "motivational_interviewing": 0.6
+  },
+
+  "ocd": {
+    "exposure_therapy": 1.0,
+    "cognitive_behavioral_therapy": 1.0,
+    "acceptance_commitment_therapy": 0.8,
+    "mindfulness_based": 0.6
+  },
+
+  "addiction": {
+    "motivational_interviewing": 1.0,
+    "cognitive_behavioral_therapy": 0.9,
+    "dialectical_behavior_therapy": 0.8,
+    "acceptance_commitment_therapy": 0.8,
+    "mindfulness_based": 0.7,
+    "solution_focused": 0.6,
+    "12_step_facilitation": 0.7
+  },
+
+  "eating_disorders": {
+    "dialectical_behavior_therapy": 0.9,
+    "cognitive_behavioral_therapy": 0.9,
+    "acceptance_commitment_therapy": 0.8,
+    "family_systems": 0.8,
+    "motivational_interviewing": 0.7,
+    "somatic": 0.6
+  },
+
+  "bipolar": {
+    "cognitive_behavioral_therapy": 0.9,
+    "dialectical_behavior_therapy": 0.8,
+    "mindfulness_based": 0.7,
+    "interpersonal_therapy": 0.8,
+    "acceptance_commitment_therapy": 0.6
+  },
+
+  "anger_management": {
+    "cognitive_behavioral_therapy": 0.9,
+    "dialectical_behavior_therapy": 0.9,
+    "acceptance_commitment_therapy": 0.8,
+    "mindfulness_based": 0.8,
+    "somatic": 0.6
+  },
+
+  "life_transitions": {
+    "acceptance_commitment_therapy": 0.9,
+    "narrative_therapy": 0.9,
+    "humanistic": 0.8,
+    "solution_focused": 0.7,
+    "psychodynamic": 0.7,
+    "cognitive_behavioral_therapy": 0.6
+  },
+
+  "loneliness": {
+    "humanistic": 0.9,
+    "acceptance_commitment_therapy": 0.8,
+    "cognitive_behavioral_therapy": 0.7,
+    "psychodynamic": 0.7,
+    "narrative_therapy": 0.6
+  },
+
+  "family_conflict": {
+    "family_systems": 1.0,
+    "gottman_method": 0.7,
+    "emotionally_focused_therapy": 0.8,
+    "narrative_therapy": 0.7,
+    "cognitive_behavioral_therapy": 0.6
+  },
+
+  "chronic_pain": {
+    "acceptance_commitment_therapy": 0.9,
+    "mindfulness_based": 0.9,
+    "somatic": 0.9,
+    "cognitive_behavioral_therapy": 0.8,
+    "emdr": 0.5
+  },
+
+  "identity_issues": {
+    "humanistic": 0.9,
+    "acceptance_commitment_therapy": 0.8,
+    "narrative_therapy": 0.9,
+    "psychodynamic": 0.8,
+    "integrative": 0.7
+  },
+
+  "social_anxiety": {
+    "cognitive_behavioral_therapy": 1.0,
+    "exposure_therapy": 1.0,
+    "acceptance_commitment_therapy": 0.8,
+    "mindfulness_based": 0.7,
+    "dialectical_behavior_therapy": 0.5
+  },
+
+  "perfectionism": {
+    "cognitive_behavioral_therapy": 0.9,
+    "acceptance_commitment_therapy": 0.9,
+    "humanistic": 0.7,
+    "psychodynamic": 0.6
+  },
+
+  "_aliases": {
+    "panic attacks": "panic_disorder",
+    "worry": "anxiety",
+    "sadness": "depression",
+    "loss": "grief",
+    "bereavement": "grief",
+    "abuse": "trauma",
+    "sexual abuse": "trauma",
+    "domestic violence": "trauma",
+    "burnout": "stress_burnout",
+    "trouble sleeping": "sleep_issues",
+    "can't sleep": "insomnia",
+    "drinking problem": "addiction",
+    "substance use": "addiction",
+    "binge eating": "eating_disorders",
+    "relationship problems": "relationship_issues",
+    "marriage problems": "relationship_issues",
+    "divorce": "relationship_issues",
+    "breakup": "grief",
+    "job stress": "work_stress",
+    "work anxiety": "work_stress",
+    "mood swings": "bipolar"
+  }
+}
