@@ -1,6 +1,8 @@
 # Therapize — AI-Powered Therapist Search Engine
 
 > Production-grade AI matching system that connects users with the right therapist in California using emotional-aware query understanding, modality-based ranking, and hybrid semantic search.
+>
+> Check out the search engine here - https://therapize.vercel.app/
 
 ---
 
