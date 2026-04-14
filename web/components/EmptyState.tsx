@@ -39,9 +39,9 @@ export default function EmptyState({ onSelect }: EmptyStateProps) {
       {/* Reassurance copy */}
       <div className="max-w-lg mx-auto text-center space-y-3 pt-4">
         <div className="flex justify-center gap-8 text-sm text-[var(--text-muted)]">
-          <span>🔒 Private &amp; confidential</span>
           <span>🤝 No account needed</span>
-          <span>💙 Judgement-free</span>
+          <span>✦ No personal info collected</span>
+          <span>✦ Judgement-free</span>
         </div>
       </div>
     </div>
