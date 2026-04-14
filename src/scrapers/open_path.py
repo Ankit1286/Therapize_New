@@ -13,8 +13,10 @@ Key design decisions:
 - Insurance: OpenPath is a sliding-scale platform ($50–$80/session flat).
   Therapists do not accept insurance. We record SELF_PAY and set sliding_scale=False
   because the fee is fixed (not sliding) — just affordable.
-- Bio: profiles have no free-text bio. We construct a descriptive sentence from
-  structured fields and store it in approach_description, not bio.
+- Bio: the Algolia API returns no free-text bio. After Algolia pagination, we
+  fetch each therapist's HTML profile page and parse the "About Me" section into
+  the bio field. approach_description is still populated as a fallback for
+  profiles where the HTML fetch fails.
 
 Algolia config sourced from openpathcollective.org page JS (tmAlgolia object):
   Application ID : TYXHARJ0OS
@@ -45,6 +47,20 @@ from src.scrapers.base import ScraperStats
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# ── Bio HTML selectors (tried in order; first non-empty result wins) ──────────
+# OpenPath profile pages are rendered server-side. Selectors target the
+# "About Me" prose block. Update here if OpenPath changes its markup.
+_BIO_SELECTORS: list[str] = [
+    # Primary: OpenPath profile page "About" section
+    "div[class*='box2-content']",
+    # Fallback selectors if markup changes
+    "div[class*='about']",
+    "section[class*='about']",
+    "div[class*='description']",
+]
+_BIO_MIN_CHARS = 80          # Ignore snippets shorter than this
+_BIO_CONCURRENT_FETCHES = 10  # Max simultaneous HTML profile requests
 
 # ── Algolia connection constants ───────────────────────────────────────────────
 _ALGOLIA_APP_ID = "TYXHARJ0OS"
@@ -169,6 +185,7 @@ class OpenPathScraper:
         1. Fetch taxonomy map from OpenPath JS (once).
         2. Paginate through Algolia, building profiles from each hit.
         3. Stop when Algolia returns no more results or max_therapists reached.
+        4. Concurrently fetch each therapist's HTML profile page to extract bio text.
         """
         async with httpx.AsyncClient(
             headers={
@@ -188,6 +205,12 @@ class OpenPathScraper:
                 self.source_name, max_therapists,
             )
             profiles = await self._paginate_algolia(max_therapists)
+
+            logger.info(
+                "%s: enriching %d profiles with HTML bios...",
+                self.source_name, len(profiles),
+            )
+            await self._enrich_with_bios(profiles)
 
         self._stats.log_summary()
         return profiles
@@ -331,7 +354,8 @@ class OpenPathScraper:
         locations: list[dict] = hit.get("locations") or []
         location = self._parse_location(locations)
         if not location:
-            return None  # Require at least a city
+            # Fall back to state-only location for telehealth-only therapists
+            location = TherapistLocation(city=None, state="CA")
 
         # Session formats
         session_formats = self._parse_session_formats(hit, locations)
@@ -363,16 +387,6 @@ class OpenPathScraper:
         # Accepting new clients
         accepting_new = bool(hit.get("new_clients", 1))
 
-        # Constructed approach description (no free-text bio on OpenPath)
-        approach_description = self._build_approach_description(
-            name=name,
-            credentials=credentials,
-            city=location.city,
-            populations=populations,
-            specializations=specializations,
-            modalities=modalities,
-        )
-
         # Profile completeness heuristic
         completeness = self._compute_completeness(
             modalities, specializations, credentials, languages, fee_min
@@ -397,7 +411,6 @@ class OpenPathScraper:
             fee_max=int(fee_max) if fee_max is not None else None,
             accepting_new_clients=accepting_new,
             bio="",
-            approach_description=approach_description,
             profile_completeness=completeness,
         )
 
@@ -415,9 +428,7 @@ class OpenPathScraper:
             (loc for loc in locations if loc.get("in_person") and loc.get("state")),
             locations[0],
         )
-        city = (primary.get("city") or "").strip()
-        if not city:
-            return None
+        city = (primary.get("city") or "").strip() or None
 
         return TherapistLocation(
             city=city,
@@ -698,44 +709,91 @@ class OpenPathScraper:
                 result[tax_type] = entries
         return result
 
-    # ── Constructed bio ───────────────────────────────────────────────────────
+    # ── HTML bio enrichment ───────────────────────────────────────────────────
 
-    @staticmethod
-    def _build_approach_description(
-        name: str,
-        credentials: list[str],
-        city: str,
-        populations: list[str],
-        specializations: list[TherapistSpecialization],
-        modalities: list[TherapyModality],
-    ) -> str:
+    async def _enrich_with_bios(self, profiles: list[TherapistProfile]) -> None:
         """
-        Build a descriptive sentence from structured fields.
+        Fetch each therapist's HTML profile page and populate bio.
 
-        OpenPath profiles have no free-text bio, so we construct a natural
-        description from the available structured data for use in embeddings
-        and BM25 indexing.
+        Runs up to _BIO_CONCURRENT_FETCHES fetches in parallel. Profiles whose
+        page returns no usable bio text are left with bio="" — the
+        approach_description still provides a useful fallback for embeddings.
         """
-        parts: list[str] = []
+        sem = asyncio.Semaphore(_BIO_CONCURRENT_FETCHES)
+        tasks = [self._enrich_one(profile, sem) for profile in profiles]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        enriched = sum(1 for r in results if r is True)
+        logger.info(
+            "%s: bio enrichment complete — %d/%d profiles got bio text",
+            self.source_name, enriched, len(profiles),
+        )
 
-        cred_str = ", ".join(credentials) if credentials else "therapist"
-        parts.append(f"{name} is a {cred_str} in {city}, California.")
+    async def _enrich_one(
+        self, profile: TherapistProfile, sem: asyncio.Semaphore
+    ) -> bool:
+        """
+        Fetch and parse a single OpenPath profile page for bio text.
 
-        if populations:
-            pop_str = ", ".join(populations[:4])  # Limit to avoid run-on sentences
-            parts.append(f"They work with {pop_str}.")
+        Returns True if a bio was found and set, False otherwise.
+        """
+        async with sem:
+            await self._rate_limit()
+            try:
+                resp = await self._client.get(str(profile.source_url))
+                if resp.status_code != 200:
+                    return False
+                bio = self._parse_bio_from_html(resp.text)
+                if bio:
+                    profile.bio = bio
+                    # Bump completeness: bio is valuable signal for embeddings/BM25
+                    profile.profile_completeness = min(
+                        1.0, profile.profile_completeness + 0.15
+                    )
+                    return True
+                return False
+            except Exception as exc:
+                logger.debug(
+                    "%s: bio fetch failed for %s: %s",
+                    self.source_name, profile.source_url, exc,
+                )
+                return False
 
-        if specializations:
-            spec_labels = [s.value.replace("_", " ") for s in specializations[:5]]
-            parts.append(f"Areas of focus include {', '.join(spec_labels)}.")
+    def _parse_bio_from_html(self, html: str) -> str:
+        """
+        Extract the About Me bio text from an OpenPath profile HTML page.
 
-        if modalities:
-            mod_labels = [m.value.replace("_", " ") for m in modalities[:5]]
-            parts.append(
-                f"Therapeutic approaches include {', '.join(mod_labels)}."
-            )
+        Tries each selector in _BIO_SELECTORS in order. Takes the longest
+        non-trivial text block found. Falls back to the largest <p> in the
+        main content if no selector matches.
+        """
+        soup = BeautifulSoup(html, "html.parser")
 
-        return " ".join(parts)
+        # Try targeted selectors first
+        for selector in _BIO_SELECTORS:
+            elements = soup.select(selector)
+            for el in elements:
+                # Use space separator so whitespace is normalised to single spaces.
+                text = el.get_text(separator=" ", strip=True)
+                # Strip leading "About [Name]" header OpenPath prepends to the section.
+                # With separator=" " the text looks like: "About FirstName Bio text..."
+                # 1. Remove the literal word "About" from the start.
+                # 2. Remove the therapist's first name (next single word).
+                if text.startswith("About"):
+                    text = text[5:].strip()          # drop "About"
+                    text = re.sub(r"^\S+\s*", "", text).strip()  # drop first name
+                if len(text) >= _BIO_MIN_CHARS:
+                    return text
+
+        # Last-resort: find the longest <p> on the page
+        candidates = [
+            p.get_text(separator=" ", strip=True)
+            for p in soup.find_all("p")
+        ]
+        candidates = [c for c in candidates if len(c) >= _BIO_MIN_CHARS]
+        if candidates:
+            return max(candidates, key=len)
+
+        return ""
 
     # ── Completeness scoring ──────────────────────────────────────────────────
 

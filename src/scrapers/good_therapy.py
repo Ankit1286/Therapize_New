@@ -308,10 +308,6 @@ class GoodTherapyScraper(BaseScraper):
             profile_urls.extend(new_links)
             seen.update(new_links)
 
-            # If GoodTherapy shows fewer than 30 results, it's the last page
-            if len(page_links) < 30:
-                break
-
         return profile_urls
 
     def _extract_profile_links(self, soup: BeautifulSoup) -> list[str]:
@@ -411,7 +407,6 @@ class GoodTherapyScraper(BaseScraper):
             fee_max=fee_max,
             accepting_new_clients=accepting_new,
             bio=bio,
-            approach_description="",  # GoodTherapy bio covers approach inline
             profile_completeness=completeness,
         )
 

@@ -89,6 +89,7 @@ class StructuredLogger:
         llm_tokens: int,
         top_score: float,
     ) -> None:
+        """Emit a structured log event when a search request completes successfully."""
         self._logger.info(
             "search_completed",
             extra={
@@ -103,6 +104,7 @@ class StructuredLogger:
         )
 
     def search_failed(self, query_id: str, error: str, stage: str) -> None:
+        """Emit a structured error log when a search request fails, including the pipeline stage where it failed."""
         self._logger.error(
             "search_failed",
             extra={
@@ -133,6 +135,7 @@ class StructuredLogger:
         rating: int,
         booked: bool | None,
     ) -> None:
+        """Emit a structured log event when a user submits feedback on a search result."""
         self._logger.info(
             "feedback_received",
             extra={

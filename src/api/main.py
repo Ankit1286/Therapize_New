@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
+from src.monitoring.metrics import REGISTRY
 
 from src.api.middleware.rate_limiter import RateLimitMiddleware
 from src.api.routes import feedback, health, search
@@ -129,12 +130,13 @@ app.include_router(health.router, tags=["health"])
 
 # ── Prometheus metrics endpoint ──────────────────────────────────────────────
 # Mount at /metrics for Prometheus scraper
-metrics_app = make_asgi_app()
+metrics_app = make_asgi_app(registry=REGISTRY)
 app.mount("/metrics", metrics_app)
 
 
 @app.get("/")
 async def root():
+    """Service discovery endpoint — returns app name, version, and links to docs and health check."""
     return {
         "service": settings.app_name,
         "version": settings.app_version,

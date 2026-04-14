@@ -10,8 +10,6 @@ from pydantic import BaseModel, Field
 from src.models.therapist import (
     InsuranceProvider,
     SessionFormat,
-    TherapyModality,
-    TherapistSpecialization,
 )
 
 
@@ -47,6 +45,7 @@ class SearchRequest(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     def has_content(self) -> bool:
+        """Return True if the request has at least one searchable field (free text or any questionnaire value)."""
         return bool(self.free_text) or any(
             v is not None
             for v in self.questionnaire.model_dump().values()
@@ -58,28 +57,17 @@ class ExtractedQueryIntent(BaseModel):
     Structured representation of what the LLM extracted from the free-text query.
     This is an internal model — not exposed to users.
 
-    Design note: we always use structured outputs (response_format=BaseModel) with
-    temperature=0 for extraction. This ensures determinism and parseability.
+    Kept minimal intentionally: only extract what the rule-based pipeline cannot
+    derive itself. Modality mapping and specialization lookup are handled
+    deterministically by modality_map.json after extraction.
     """
     emotional_concerns: list[str] = Field(
         default_factory=list,
         description="Identified emotional/psychological concerns, e.g. ['anxiety', 'grief']",
     )
-    recommended_specializations: list[TherapistSpecialization] = Field(
-        default_factory=list,
-        description="Therapist specializations that match the concerns",
-    )
-    recommended_modalities: list[TherapyModality] = Field(
-        default_factory=list,
-        description="Evidence-based therapy modalities for these concerns",
-    )
-    modality_weights: dict[str, float] = Field(
-        default_factory=dict,
-        description="How strongly each modality is indicated (0-1)",
-    )
     inferred_filters: UserQuestionnaire = Field(
         default_factory=UserQuestionnaire,
-        description="Filters implied by the query (e.g. 'near downtown SF')",
+        description="Logistical filters implied by the query (location, insurance, budget, format)",
     )
     query_summary: str = Field(
         "",
@@ -93,7 +81,7 @@ class TherapistResult(BaseModel):
     therapist_id: UUID
     name: str
     credentials: list[str]
-    city: str
+    city: Optional[str] = None
     session_formats: list[SessionFormat]
     accepts_insurance: list[InsuranceProvider]
     fee_range: Optional[str] = None  # e.g. "$120-$180"
@@ -112,7 +100,11 @@ class TherapistResult(BaseModel):
 
     # Why this therapist was recommended
     match_explanation: str = Field(
-        description="Human-readable explanation of why this therapist was matched"
+        description="Structured debug explanation (internal signals)"
+    )
+    narrative_explanation: str = Field(
+        default="",
+        description="User-facing plain-English explanation of why this therapist was ranked here",
     )
 
 
@@ -127,12 +119,18 @@ class SearchResponse(BaseModel):
     llm_tokens_used: int = 0
     llm_cost_usd: float = 0.0
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    filter_relaxation_note: str = Field(
+        default="",
+        description="Non-empty when filters were progressively relaxed to find enough results",
+    )
 
 
 class FeedbackRequest(BaseModel):
     query_id: UUID
     therapist_id: UUID
     rating: int = Field(..., ge=1, le=5)
+    rank_position: Optional[int] = Field(None, ge=1, description="1-based rank of this therapist in the result list")
+    event_type: str = Field("explicit", description="'explicit' for thumbs, 'profile_view' for link clicks")
     booked_appointment: Optional[bool] = None
     feedback_text: Optional[str] = Field(None, max_length=500)
     timestamp: datetime = Field(default_factory=datetime.utcnow)

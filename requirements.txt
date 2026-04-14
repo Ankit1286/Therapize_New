@@ -34,9 +34,6 @@ scipy==1.13.1
 # Monitoring
 prometheus-client==0.20.0
 
-# Frontend
-streamlit==1.36.0
-
 # Utilities
 python-dotenv==1.0.1
 

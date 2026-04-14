@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+:root {
+  --bg:           #FAF7F4;
+  --sidebar-bg:   #EDE8E3;
+  --card-bg:      #FFFFFF;
+  --primary:      #4A90A4;
+  --primary-dark: #3A7A8E;
+  --text:         #1E2A38;
+  --text-muted:   #6B7280;
+  --border:       #E5DED7;
+}
+
+body {
+  background: linear-gradient(160deg, #EBF6F9 0%, #FAF7F4 45%, #F5EFE6 100%);
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* Smooth scrollbar on sidebar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #C8C1BA;
+  border-radius: 3px;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card-enter {
+  animation: fadeInUp 0.3s ease both;
+}

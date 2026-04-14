@@ -67,7 +67,6 @@ SAMPLE_THERAPISTS = [
             "I work extensively with perfectionism, overthinking, and the constant 'what-ifs' "
             "that keep people stuck in cycles of worry."
         ),
-        approach_description="CBT + mindfulness integration for anxiety and depression.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/2", source_id="2",
@@ -90,7 +89,6 @@ SAMPLE_THERAPISTS = [
             "reconnect with their innate capacity for resilience. I have specialized training "
             "in treating PTSD, panic disorder, and the lingering effects of childhood trauma."
         ),
-        approach_description="EMDR and somatic therapy for trauma recovery.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/3", source_id="3",
@@ -114,7 +112,6 @@ SAMPLE_THERAPISTS = [
             "grounded in 20 years of Gottman research — the most evidence-based approach to "
             "couples therapy available."
         ),
-        approach_description="Gottman Method and EFT for couples and relationship healing.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/4", source_id="4",
@@ -137,7 +134,6 @@ SAMPLE_THERAPISTS = [
             "difficult emotions — you don't have to be at the mercy of every feeling. "
             "I offer individual DBT therapy as well as skills group coaching."
         ),
-        approach_description="DBT for emotion regulation, BPD, and chronic mood issues.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/5", source_id="5",
@@ -160,7 +156,6 @@ SAMPLE_THERAPISTS = [
             "and new meaning. I've worked extensively with unexpected loss, anticipatory grief, "
             "and complicated bereavement. Grief is not a disorder — it's love with nowhere to go."
         ),
-        approach_description="Narrative therapy and humanistic approaches for grief and loss.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/6", source_id="6",
@@ -183,7 +178,6 @@ SAMPLE_THERAPISTS = [
             "without the need for explanation or justification. I specialize in coming out, "
             "gender transition, internalized homophobia, and navigating unsupportive families."
         ),
-        approach_description="LGBTQ+-affirming therapy combining ACT and psychodynamic work.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/7", source_id="7",
@@ -206,7 +200,6 @@ SAMPLE_THERAPISTS = [
             "with patience, honesty, and clinical expertise. I am in recovery myself and "
             "bring lived experience as well as clinical training to our work together."
         ),
-        approach_description="Motivational Interviewing and CBT for addiction and recovery.",
     ),
     TherapistProfile(
         source="demo", source_url="https://therapize.demo/8", source_id="8",
@@ -229,7 +222,6 @@ SAMPLE_THERAPISTS = [
             "reclaim your life from anxiety and compulsions. OCD is treatable, and ERP is "
             "the gold-standard treatment with 60-80% response rates."
         ),
-        approach_description="ERP and CBT specialist for OCD, phobias, and anxiety disorders.",
     ),
 ]
 

@@ -90,7 +90,7 @@ class TherapistSpecialization(str, Enum):
 
 
 class TherapistLocation(BaseModel):
-    city: str
+    city: Optional[str] = None
     state: str = "CA"
     zip_code: Optional[str] = None
     county: Optional[str] = None
@@ -134,7 +134,6 @@ class TherapistProfile(BaseModel):
 
     # Content (used for BM25 + embedding)
     bio: str = Field(default="", description="Full bio text from profile")
-    approach_description: str = Field(default="", description="How they describe their approach")
 
     # Engagement signals
     rating: Optional[float] = None
@@ -163,10 +162,9 @@ class TherapistProfile(BaseModel):
             f"Therapist: {self.name}",
             f"Specializations: {', '.join(s.value for s in self.specializations)}",
             f"Modalities: {', '.join(m.value for m in self.modalities)}",
-            f"Approach: {self.approach_description}",
             f"Bio: {self.bio}",
             f"Populations: {', '.join(self.populations_served)}",
-            f"Location: {self.location.city}, {self.location.state}",
+            f"Location: {self.location.city + ', ' if self.location.city else ''}{self.location.state}",
         ]
         return " | ".join(p for p in parts if p)
 
@@ -175,7 +173,6 @@ class TherapistProfile(BaseModel):
         return " ".join([
             self.name,
             self.bio,
-            self.approach_description,
             " ".join(s.value for s in self.specializations),
             " ".join(m.value for m in self.modalities),
             " ".join(self.populations_served),

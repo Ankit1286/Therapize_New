@@ -5,7 +5,7 @@ Uses pydantic-settings so misconfigured deployments fail fast at startup.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -37,16 +37,31 @@ class Settings(BaseSettings):
     # 2. Filtering BEFORE vector search is far more efficient
     # 3. pgvector supports HNSW for fast ANN with recall > 0.95
     # 4. One system of record — no sync complexity
-    database_url: PostgresDsn = Field(
+    database_url: str = Field(
         "postgresql+asyncpg://therapize:therapize@localhost:5432/therapize"
     )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def fix_postgres_scheme(cls, v: str) -> str:
+        # Railway (and most platforms) emit postgresql:// — asyncpg needs +asyncpg
+        if isinstance(v, str) and v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_timeout: int = 30
 
     # ── Redis (caching + rate limiting) ──────────────────────────────────
     # Cache hit reduces latency from ~800ms → ~5ms and eliminates LLM cost
-    redis_url: RedisDsn = Field("redis://localhost:6379/0")
+    redis_url: str = Field("redis://localhost:6379/0")
+
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def validate_redis_url(cls, v: str) -> str:
+        if isinstance(v, str) and v.startswith(("redis://", "rediss://")):
+            return v
+        raise ValueError("redis_url must start with redis:// or rediss://")
     cache_ttl_seconds: int = 3600          # 1 hour: therapist data is stable
     rate_limit_per_minute: int = 30        # per IP
 

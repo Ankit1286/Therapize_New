@@ -18,6 +18,15 @@ from src.models.therapist import InsuranceProvider, SessionFormat
 
 logger = logging.getLogger(__name__)
 
+# Maps age_group values from UserQuestionnaire to ILIKE patterns matched against
+# the populations_served TEXT[] column.  Patterns are intentionally broad to
+# handle the free-text variants scraped from different platforms.
+_AGE_GROUP_PATTERNS: dict[str, list[str]] = {
+    "child":      ["%child%", "%toddler%", "%preteen%", "%tween%"],
+    "adolescent": ["%adolescent%", "%teen%", "%preteen%", "%tween%"],
+    "adult":      ["%adult%", "%elder%"],
+}
+
 
 @dataclass
 class FilterCriteria:
@@ -40,6 +49,9 @@ class FilterCriteria:
     # Preferences
     preferred_gender: str | None = None
     preferred_language: str | None = None
+
+    # Requirement — never relaxed in progressive fallback
+    age_group: str | None = None
 
 
 class FilterEngine:
@@ -68,6 +80,7 @@ class FilterEngine:
             accepting_new_clients=True,  # always filter for active therapists
             preferred_gender=explicit.preferred_gender,
             preferred_language=explicit.preferred_language,
+            age_group=explicit.age_group,
         )
 
     def build_sql_where(self, criteria: FilterCriteria) -> tuple[str, list]:
@@ -94,11 +107,19 @@ class FilterEngine:
         params.append(criteria.accepting_new_clients)
         idx += 1
 
-        # City filter (case-insensitive)
+        # City filter logic:
+        # - telehealth/both: skip entirely (therapists serve all of CA)
+        # - in_person + city: exact city match only
+        # - any format + city: city match OR telehealth-only (city IS NULL) therapists
         if criteria.city:
-            conditions.append(f"LOWER(city) = LOWER(${idx})")
-            params.append(criteria.city)
-            idx += 1
+            if criteria.session_format in (SessionFormat.TELEHEALTH, SessionFormat.BOTH):
+                pass  # no location filter for telehealth
+            elif criteria.session_format == SessionFormat.IN_PERSON:
+                conditions.append(f"LOWER(city) = LOWER(${idx})")
+                params.append(criteria.city)
+                idx += 1
+            # else: "any" format — city is a ranking signal only, not a hard filter;
+            # all CA therapists are candidates and the ranker boosts the preferred city
 
         # Zip code filter
         if criteria.zip_code:
@@ -144,6 +165,21 @@ class FilterEngine:
             conditions.append(f"${idx} = ANY(languages)")
             params.append(criteria.preferred_language.lower())
             idx += 1
+
+        # Age group — matched against populations_served free-text array.
+        # Uses ILIKE patterns because scraped values are not normalised
+        # (e.g. "Children (6-10)", "Adolescents / Teenagers (14 - 19)").
+        if criteria.age_group:
+            patterns = _AGE_GROUP_PATTERNS.get(criteria.age_group.lower(), [])
+            if patterns:
+                conditions.append(
+                    f"EXISTS ("
+                    f"SELECT 1 FROM unnest(populations_served) AS pop "
+                    f"WHERE pop ILIKE ANY(${idx}::text[])"
+                    f")"
+                )
+                params.append(patterns)
+                idx += 1
 
         where_clause = " AND ".join(conditions)
         logger.debug(

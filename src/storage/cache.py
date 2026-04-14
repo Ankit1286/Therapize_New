@@ -46,6 +46,7 @@ async def init_cache() -> None:
 
 
 async def close_cache() -> None:
+    """Close the Redis connection. Call once at app shutdown."""
     global _redis
     if _redis:
         await _redis.aclose()

@@ -38,6 +38,7 @@ class ScraperStats:
     skipped: int = 0
 
     def log_summary(self) -> None:
+        """Log a summary of scraping run statistics including pages scraped, profiles found/saved, errors, and elapsed time."""
         elapsed = (datetime.utcnow() - self.started_at).total_seconds()
         logger.info(
             "Scraper summary: pages=%d, found=%d, saved=%d, errors=%d, "

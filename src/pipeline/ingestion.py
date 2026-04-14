@@ -33,6 +33,7 @@ class IngestionStats:
     started_at: datetime = field(default_factory=datetime.utcnow)
 
     def log(self) -> None:
+        """Log a summary of the ingestion run: counts for each pipeline stage and elapsed time."""
         elapsed = (datetime.utcnow() - self.started_at).total_seconds()
         logger.info(
             "[%s] Ingestion complete: scraped=%d, cleaned=%d, embedded=%d, "
@@ -59,6 +60,12 @@ class IngestionPipeline:
         self,
         max_therapists: int = 5000,
     ) -> IngestionStats:
+        """
+        Scrape OpenPath and ingest profiles into the database.
+
+        Runs the full pipeline: scrape → clean → embed → upsert.
+        Returns IngestionStats with counts for each stage.
+        """
         stats = IngestionStats(source="open_path")
 
         scraper = OpenPathScraper()
@@ -95,6 +102,7 @@ class IngestionPipeline:
         max_therapists: int = 5000,
         max_pages: int = 100,
         cities: list[str] | None = None,
+        max_per_city: int | None = None,
     ) -> IngestionStats:
         """
         Scrape GoodTherapy and ingest into the database.
@@ -102,15 +110,15 @@ class IngestionPipeline:
         ``cities``: optional list of city slugs (e.g. ["los-angeles", "san-francisco"])
         to restrict URL collection — useful for quick dev runs.  When None, all
         ~189 CA cities are walked.
+
+        ``max_per_city``: cap the number of therapists fetched per city, ensuring
+        no single city dominates the dataset. Ignored when cities is None.
         """
         stats = IngestionStats(source="good_therapy")
 
-        # Use the scraper's run() so the httpx client is properly initialized.
-        # For small batches we restrict to specific cities to avoid crawling all 189.
         scraper = GoodTherapyScraper()
 
         if cities:
-            # Fast path: collect URLs only from the specified cities
             import httpx
             raw_profiles = []
             async with httpx.AsyncClient(
@@ -119,24 +127,30 @@ class IngestionPipeline:
                 timeout=30,
             ) as client:
                 scraper._client = client
-                profile_urls: list[str] = []
                 for city_slug in cities:
+                    if len(raw_profiles) >= max_therapists:
+                        break
                     city_url = f"{scraper.base_url}/therapists/ca/{city_slug}"
                     city_urls = await scraper._collect_city_profile_urls(
                         city_url, max_pages_per_city=max_pages
                     )
-                    profile_urls.extend(city_urls)
-                    if len(profile_urls) >= max_therapists:
-                        break
-
-                for url in profile_urls[:max_therapists]:
-                    try:
-                        r = await client.get(url)
-                        profile = await scraper.parse_therapist_profile(url, r.text)
-                        if profile:
-                            raw_profiles.append(profile)
-                    except Exception as exc:
-                        logger.warning("Failed to fetch %s: %s", url, exc)
+                    # Apply per-city cap if set
+                    city_limit = max_per_city if max_per_city else len(city_urls)
+                    city_urls = city_urls[:city_limit]
+                    logger.info(
+                        "GoodTherapy: fetching %d profiles from %s",
+                        len(city_urls), city_slug,
+                    )
+                    for url in city_urls:
+                        if len(raw_profiles) >= max_therapists:
+                            break
+                        try:
+                            r = await client.get(url)
+                            profile = await scraper.parse_therapist_profile(url, r.text)
+                            if profile:
+                                raw_profiles.append(profile)
+                        except Exception as exc:
+                            logger.warning("Failed to fetch %s: %s", url, exc)
         else:
             # Full run: walk all cities via the standard scraper.run() flow
             raw_profiles = await scraper.run(

@@ -14,9 +14,9 @@
 │  GoodTherapy ──────────► HTML scraping ───────┼──► Cleaner ──► DB   │
 │                          (httpx + BS4)        │              │      │
 │                               │               │              ▼      │
-│                               ▼               │    PostgreSQL +     │
-│                         Rate Limiter          │     pgvector        │
-│                         Robots.txt check      │    (therapist       │
+│                         Rate Limiter          │    PostgreSQL +     │
+│                         Robots.txt check      │     pgvector        │
+│                                               │    (therapist       │
 │                                               │     profiles +      │
 │                                               │     embeddings)     │
 └──────────────────────────────────────────┬────┴─────────────────────┘
@@ -24,25 +24,26 @@
 ┌──────────────────────────────────────────▼──────────────────────────┐
 │                       MATCHING ENGINE (Core)                         │
 │                                                                     │
-│  User Query                                                         │
-│  + Questionnaire                                                    │
+│  User Query (free text + optional GUI filters)                      │
 │       │                                                             │
 │       ▼                                                             │
-│  ┌──────────────┐    ┌──────────────────────────────────────┐       │
-│  │   LangGraph  │    │           Scoring Pipeline            │       │
-│  │   Workflow   │    │                                       │       │
-│  │              │    │  1. Hard Filter (location/insurance)  │       │
-│  │  ┌─────────┐ │    │  2. Modality Match Score (0.40)       │       │
-│  │  │  Query  │ │    │     concerns → modalities → therapist │       │
-│  │  │Processor│─┼───►│  3. Semantic Vector Score  (0.35)     │       │
-│  │  │  (LLM)  │ │    │  4. BM25 Lexical Score     (0.15)     │       │
-│  │  └─────────┘ │    │  5. Quality Score           (0.10)    │       │
-│  │              │    │  6. Composite Score = weighted sum    │       │
-│  │  Extracts:   │    └──────────────────────────────────────┘       │
-│  │  - concerns  │                                                   │
-│  │  - modalities│                                                   │
-│  │  - filters   │                                                   │
-│  └──────────────┘                                                   │
+│  ┌─────────────────┐   ┌──────────────────────────────────────┐     │
+│  │  Query Processor │   │           Scoring Pipeline            │     │
+│  │  (Claude Haiku) │   │                                       │     │
+│  │                 │   │  1. Hard SQL Filter                   │     │
+│  │  Extracts:      │   │     (location/insurance/budget/format)│     │
+│  │  - emotional    │   │  2. Vector ANN (pgvector HNSW)        │     │
+│  │    concerns     │   │     → top-K candidates                │     │
+│  │  - logistical   │   │  3. Modality Match Score   (0.40)     │     │
+│  │    filters from │   │     concerns → modality_map.json      │     │
+│  │    free text    │   │     → therapist modality overlap      │     │
+│  └────────┬────────┘   │  4. Semantic Score         (0.35)     │     │
+│           │            │     cosine_sim(query_emb, profile_emb)│     │
+│           │            │  5. BM25 Lexical Score      (0.15)    │     │
+│           │            │  6. Quality Score            (0.10)   │     │
+│           │            │     rating × profile completeness     │     │
+│           └───────────►│  → composite score, sorted descending │     │
+│                        └──────────────────────────────────────┘     │
 └──────────────────────────────────────────┬──────────────────────────┘
                                            │
 ┌──────────────────────────────────────────▼──────────────────────────┐
@@ -50,170 +51,224 @@
 │                                                                     │
 │   /search ──► Redis Cache Check ──► Matching Engine ──► Response    │
 │   /feedback ──► Feedback Store ──► Metrics Update                   │
-│   /health ──► DB ping + cache ping + model ping                     │
+│   /health ──► DB ping + cache ping                                  │
 │   /metrics ──► Prometheus scrape endpoint                           │
 └──────────────────────────────────────────┬──────────────────────────┘
                                            │
 ┌──────────────────────────────────────────▼──────────────────────────┐
 │                       OBSERVABILITY STACK                            │
 │                                                                     │
-│  LangSmith ──── LLM call traces, latency, token costs              │
-│  Prometheus ─── system metrics (latency P50/P99, error rate)       │
-│  Structured Logs ── JSON logs → queryable                          │
-│  Feedback Loop ── user ratings → offline eval → model improvement  │
+│  LangSmith ──── LLM call traces, extracted intent per query        │
+│  Prometheus ─── latency, token cost, cache hit rate, match scores  │
+│  Structured Logs ── JSON logs (slow query alerts, search events)   │
+│  Feedback Loop ── thumbs up/down → search_queries + feedback tables│
+│                   → offline NDCG/MRR evaluation pipeline           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Recruiter Questions — Answered in Code
+## Request Flow (Step by Step)
 
-| Question | Where in Code | File |
-|----------|--------------|------|
-| End-to-end system design | Full pipeline: scraper → DB → API | `src/pipeline/`, `src/api/` |
-| Cost estimation | Token counter, cost logger | `src/monitoring/metrics.py` |
-| Latency reduction | Redis cache, async scraping, ANN search | `src/storage/cache.py`, `src/api/middleware/` |
-| Dataset construction | Scraper + cleaner + normalization | `src/scrapers/`, `src/pipeline/cleaner.py` |
-| Loss function / ranking | NDCG-optimized composite scorer | `src/matching/hybrid_ranker.py` |
-| Database choice | PostgreSQL + pgvector (why: structured + vector in one) | `src/storage/database.py` |
-| Metrics tracking | Prometheus: latency, NDCG, user satisfaction | `src/monitoring/metrics.py` |
-| System monitoring | LangSmith + structured logging + health checks | `src/monitoring/tracing.py` |
-| Feedback loop | Explicit ratings + implicit signals → eval pipeline | `src/monitoring/evaluation.py` |
-| Determinism | Temperature=0, structured outputs, rule-based filters | `src/matching/query_processor.py` |
+```
+POST /api/v1/search { free_text, questionnaire }
+```
+
+1. **Redis cache check** — SHA256 hash of `(free_text + questionnaire)` as key.
+   Cache hit → return in ~5ms. Cache miss → continue.
+
+2. **Query Processor (Claude Haiku + instructor)**
+   - Extracts `emotional_concerns` from free text (e.g. `["anxiety", "rumination"]`)
+   - Extracts logistical filters implied by free text (city, insurance, budget, format)
+   - Merges with explicit GUI questionnaire filters — explicit always wins
+   - Temperature = 0 for determinism. `instructor` enforces Pydantic output via tool-use.
+
+3. **Embed query** — `all-MiniLM-L6-v2` (local, 384-dim). Zero API cost.
+
+4. **Filter + vector search** (single DB round-trip)
+   ```sql
+   SELECT ... FROM therapists
+   WHERE state = 'CA' AND accepting_new_clients = true
+     AND <insurance/city/budget filters>
+   ORDER BY embedding <=> $query_vector   -- pgvector HNSW cosine distance
+   LIMIT 100
+   ```
+   SQL hard filters run first (GIN + B-tree indexes), then HNSW ANN on the
+   filtered set. Far more efficient than vector search then filter.
+
+5. **Fallback** — if fewer than 3 results, relax all filters to just `state=CA`.
+
+6. **Modality mapping** — `emotional_concerns` → `modality_map.json` → weighted
+   modality dict. Deterministic, no LLM cost per ranking.
+
+7. **Hybrid ranking** over the candidate set:
+   - Modality score: therapist modalities vs. concern-mapped modalities (weight 0.40)
+   - Semantic score: cosine similarity of embeddings (weight 0.35)
+   - BM25: keyword overlap on therapist bios (weight 0.15)
+   - Quality: log-dampened rating × profile completeness (weight 0.10)
+   All signals normalized to [0,1] before combining.
+
+8. **Response** — top 10 results with full score breakdown, matched modalities,
+   bio excerpt, and human-readable match explanation.
+
+9. **Cache + log** — result cached in Redis (1hr TTL). Query + result IDs logged
+   to `search_queries` table for offline evaluation.
 
 ---
 
-## Why These Technology Choices
+## Key Design Decisions
+
+### LLM extracts concerns only — not modalities
+The LLM (`query_processor.py`) extracts `emotional_concerns` (plain language:
+`["anxiety", "grief"]`). Modality mapping is handled deterministically by
+`modality_map.json` (`matching/knowledge/`). This keeps the LLM schema small
+(fewer tokens → faster, cheaper) and the ranking logic auditable without LLM cost.
 
 ### PostgreSQL + pgvector (not a dedicated vector DB)
-- Therapist profiles have **rich structured data** (insurance, location, price) that needs SQL filters
-- Running vector search AFTER SQL filters is more efficient than filtering in a pure vector DB
-- Single source of truth — no sync between two databases
-- pgvector supports HNSW indexing for fast approximate nearest neighbor
-- When to use Qdrant/Pinecone instead: if you need multi-tenant isolation, billions of vectors, or real-time vector updates
+Therapist data is highly structured — insurance, location, price need SQL.
+Filtering **before** vector search is far more efficient than post-filtering.
+Single source of truth — no sync between two databases. HNSW index gives >0.95
+recall. Use Qdrant/Pinecone instead only if you need billions of vectors or
+multi-tenant isolation.
 
-### Redis (caching layer)
-- Search results cached by query hash — P99 latency drops from ~800ms to ~5ms on cache hit
-- TTL = 1 hour (therapist data doesn't change minute to minute)
-- Also used for rate limiting (sliding window counter)
+### Local embeddings (`all-MiniLM-L6-v2`, 384 dims)
+Zero per-token cost vs OpenAI. Loaded once at startup, cached in memory.
+Same query is never re-embedded (Redis cache on full response).
 
-### LangGraph (workflow orchestration)
-- Stateful graph makes the matching pipeline debuggable and observable
-- Each node can be tested independently
-- Conditional edges handle edge cases (empty results → fallback strategy)
-- Checkpointing allows resuming failed pipelines
+### Binary feedback (thumbs up/down)
+UI collects 👍 (rating=5) / 👎 (rating=1). Stored in `feedback` table linked
+to `search_queries`. Feeds offline NDCG/MRR evaluation in `evaluation.py`.
+With binary labels, MRR is the most meaningful metric: "how far did the user
+scroll before finding a good therapist?"
 
-### LangSmith (observability)
-- Every LLM call is traced with input/output/latency/token count
-- Enables cost tracking per query
-- Enables prompt regression testing
+### Redis cache
+Same query → same result in ~5ms instead of ~2-8s. TTL = 1hr. Cache key =
+SHA256(free_text + questionnaire JSON). Also backs the rate limiter (30 req/min
+per IP, sliding window).
 
-### Scrapers: Algolia API (OpenPath) + HTML (GoodTherapy)
-- **OpenPath**: queries the Algolia search API directly — fast, structured JSON, no HTML parsing
-- **GoodTherapy**: BeautifulSoup HTML scraping; selectors centralized for easy maintenance
-- Both use `httpx` async HTTP — no Playwright or headless browser required
+### LangGraph (optional orchestration)
+The pipeline runs as a LangGraph graph when installed, or falls back to a plain
+sequential function (`_run_pipeline`). The graph adds independent node
+testability and LangSmith traces per node. The pipeline is a straight line with
+one conditional edge (fallback on empty results) — straightforward enough that
+LangGraph is optional overhead.
 
 ---
 
-## Matching Algorithm Deep Dive
-
-The core innovation is **modality-aware ranking**:
+## Matching Algorithm
 
 ```
-User: "I've been having panic attacks since losing my job, can't sleep"
+User: "I've been having panic attacks and can't stop ruminating. Feel dysfunctional."
 
 Step 1 — Query Processor (LLM):
-  emotional_concerns: ["anxiety", "panic_disorder", "work_stress", "insomnia"]
-  logistical_filters: {insurance: None, location: None, budget: None}
+  emotional_concerns: ["anxiety", "panic attacks", "rumination", "functional impairment"]
+  inferred_filters:   {}  (no logistical info in query)
 
-Step 2 — Modality Mapper (knowledge base lookup):
-  anxiety       → [CBT, DBT, ACT, EMDR, mindfulness]
-  panic_disorder → [CBT, exposure_therapy, EMDR]
-  work_stress   → [ACT, solution_focused, coaching]
-  insomnia      → [CBT-I, mindfulness, somatic]
+Step 2 — Modality Mapper (modality_map.json lookup, no LLM):
+  anxiety       → CBT (0.95), ACT (0.85), mindfulness (0.75)
+  panic attacks → CBT (0.95), exposure_therapy (0.90)
+  rumination    → CBT (0.90), mindfulness (0.80), ACT (0.85)
+  → merged: { CBT: 0.95, exposure_therapy: 0.90, ACT: 0.85, mindfulness: 0.80 }
 
-  recommended_modalities = {CBT: 0.9, EMDR: 0.7, ACT: 0.8, DBT: 0.6, ...}
+Step 3 — Hybrid Scoring (per candidate therapist):
+  modality_score  = overlap(therapist.modalities, mapped_modalities)  [0.40]
+  semantic_score  = cosine_sim(query_embedding, profile_embedding)     [0.35]
+  bm25_score      = bm25(query_tokens, therapist_bio_text)             [0.15]
+  quality_score   = log_dampened_rating × profile_completeness         [0.10]
 
-Step 3 — Hybrid Scoring (per therapist):
-  modality_score  = overlap(therapist.modalities, recommended_modalities)  [weight: 0.40]
-  semantic_score  = cosine_sim(query_embedding, therapist_embedding)        [weight: 0.35]
-  bm25_score      = bm25(query_tokens, therapist_text)                      [weight: 0.15]
-  quality_score   = normalized rating × profile completeness                [weight: 0.10]
-
-  final_score = weighted_sum(all scores)
-  → Returns top N results sorted by composite score
+  composite = 0.40×mod + 0.35×sem + 0.15×bm25 + 0.10×quality
+  → top 10 sorted descending, with score breakdown returned in response
 ```
+
+---
+
+## Observability
+
+**LangSmith** — traces every search at `smith.langchain.com` (project: `therapize`).
+Each trace shows the `query_processor.extract_intent` span with the full
+extracted intent (concerns, inferred filters, confidence, summary).
+Set `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` in `.env` to enable.
+
+**Prometheus** — metrics at `/metrics`:
+- `therapize_search_latency_ms` — P50/P99 latency histogram
+- `therapize_llm_tokens_total` — cumulative token spend
+- `therapize_llm_cost_usd_total` — estimated USD cost
+- `therapize_cache_hits_total` / `misses` — cache hit rate
+- `therapize_modality_match_score` — distribution of top-result modality scores
+- `therapize_candidates_after_filter` — filter restrictiveness signal
+- `therapize_evaluation_ndcg_at_10` / `mrr` — updated by offline eval pipeline
+
+**Offline evaluation** (`src/monitoring/evaluation.py`) — computes NDCG@10, MRR,
+Precision@5 from the `feedback` table. Run after prompt or weight changes to
+catch regressions. Results written to `evaluation_runs` table and Prometheus gauges.
 
 ---
 
 ## Running Locally
 
 ```bash
-# 1. Start infrastructure
-docker-compose up -d postgres redis
-
-# 2. Install dependencies
+# 1. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set environment variables
+# 2. Set environment variables
 cp .env.example .env
-# Edit .env — only ANTHROPIC_API_KEY is required
+# Required: ANTHROPIC_API_KEY, DATABASE_URL, REDIS_URL
+# Optional: LANGCHAIN_API_KEY, LANGCHAIN_TRACING_V2=true
 
-# 4. Run database migrations
+# 3. Run database migrations
 python scripts/migrate.py
 
-# 5. Load therapist data
-python scripts/seed_data.py        # fast: synthetic data (no scraping)
-python scripts/ingest_small.py     # real data: ~5 from each source (dev)
-python scripts/run_ingestion.py    # real data: full scale
+# 4. Load therapist data
+python scripts/ingest_small.py     # ~10 real therapists (dev/testing)
+python scripts/seed_data.py        # synthetic data (no scraping needed)
 
-# 6. Start API
-uvicorn src.api.main:app --reload --port 8000
+# 5. Start API
+python -m uvicorn src.api.main:app --reload --port 8000
 
-# 7. Start frontend
-streamlit run frontend/app.py
+# 6. Start frontend
+streamlit run frontend/app.py      # http://localhost:8501
 ```
 
-**Standalone demo** (no DB or Redis required — just `ANTHROPIC_API_KEY`):
-```bash
-python demo.py "I have anxiety and trouble sleeping"
-```
-
----
-
-## Metrics & Evaluation
-
-**Online Metrics (Prometheus)**
-- `search_latency_p50/p99` — user-facing latency
-- `llm_token_cost_per_query` — cost per search
-- `cache_hit_rate` — effectiveness of caching
-- `result_click_rate` — proxy for relevance
-
-**Offline Metrics (Evaluation Pipeline)**
-- `NDCG@10` — ranking quality
-- `MRR` — mean reciprocal rank
-- `Precision@k` — how many top-k results are relevant
-
-**Feedback Loop**
-- User rates results (1-5 stars) or marks "not relevant"
-- Feedback stored with query + results for offline eval
-- Monthly evaluation run: compare NDCG before/after prompt changes
+**Infrastructure** (Postgres + Redis) can be self-hosted via Docker or use
+managed services. The codebase is tested against Neon (serverless Postgres) and
+Upstash (serverless Redis) for zero-ops dev setup.
 
 ---
 
 ## Cost Estimation
 
-Per 1000 queries:
-- Claude Haiku for query extraction: ~500 tokens × $0.00000025 = $0.000125 (effectively free)
-- all-MiniLM-L6-v2 for embedding: local, $0 — runs on CPU via sentence-transformers
-- Total LLM cost: ~$0.000125 per 1000 queries
-- Infrastructure (PostgreSQL + Redis on small EC2): ~$50/month
+Per 1000 queries (no cache hits):
+- Claude Haiku extraction: ~800 tokens × $0.00000025 = ~$0.0002
+- `all-MiniLM-L6-v2` embedding: local, $0
+- **Total LLM cost: ~$0.20 per 1,000 queries**
 
-Cost reduction strategies:
-1. Cache embeddings — same query never re-embedded
-2. Use Haiku over heavier models — cheapest Claude, good enough for extraction
-3. Cache search results in Redis — 60%+ cache hit rate on repeat queries
-4. Local embeddings eliminate per-token cost entirely
+With a 60% cache hit rate (repeat queries):
+- Effective cost drops to ~$0.08 per 1,000 queries
+
+Infrastructure (managed Postgres + Redis): ~$20-50/month depending on tier.
+
+---
+
+## Evaluation Metrics
+
+**Online** (automatic, every request):
+| Metric | Signal |
+|---|---|
+| `search_latency_ms` | User-facing SLO |
+| `modality_match_score` | Proxy for ranking quality — no feedback needed |
+| `candidates_after_filter` | Filter restrictiveness |
+| `cache_hit_rate` | Cost efficiency |
+
+**Offline** (requires user feedback, run periodically):
+| Metric | What it measures |
+|---|---|
+| NDCG@10 | Ranking quality — are relevant results ranked first? |
+| MRR | How far the user scrolls to find a good match |
+| Precision@5 | Fraction of top-5 results that are relevant |
+| Booking rate | `booked=true` in feedback — the ground truth signal |
+
+Feedback is binary (👍 = relevant, 👎 = irrelevant). With binary labels, MRR
+is the most informative metric.
 
 ---
 
@@ -223,52 +278,48 @@ Cost reduction strategies:
 Therapize/
 ├── src/
 │   ├── config.py                    # Pydantic settings (all config in one place)
-│   ├── models/                      # Data contracts
-│   │   ├── therapist.py             # Therapist profile schema
-│   │   └── query.py                 # Search request/response
-│   ├── scrapers/                    # Data collection
-│   │   ├── base.py                  # Abstract scraper with retry/rate-limit
+│   ├── models/
+│   │   ├── therapist.py             # TherapistProfile schema + enums
+│   │   └── query.py                 # SearchRequest, SearchResponse, ExtractedQueryIntent
+│   ├── scrapers/
+│   │   ├── base.py                  # Abstract scraper (retry, rate-limit, robots.txt)
 │   │   ├── open_path.py             # Algolia API scraper (OpenPath Collective)
 │   │   └── good_therapy.py          # HTML scraper (GoodTherapy.org)
-│   ├── pipeline/                    # Data pipeline
-│   │   ├── ingestion.py             # Orchestrates scraping → DB
-│   │   ├── cleaner.py               # Normalize + validate scraped data
-│   │   └── embeddings.py            # Batch embedding generation (local, free)
-│   ├── matching/                    # Core matching engine
-│   │   ├── query_processor.py       # LLM query understanding
-│   │   ├── modality_mapper.py       # Concerns → modalities
-│   │   ├── hybrid_ranker.py         # Multi-signal scoring
-│   │   ├── filter_engine.py         # Hard constraint filters
+│   ├── pipeline/
+│   │   ├── ingestion.py             # Orchestrates scraping → embed → DB upsert
+│   │   └── embeddings.py            # Local sentence-transformers embedding pipeline
+│   ├── matching/
+│   │   ├── query_processor.py       # LLM extraction (concerns + inferred filters)
+│   │   ├── modality_mapper.py       # concerns → modality weights (JSON map lookup)
+│   │   ├── hybrid_ranker.py         # 4-signal composite scorer
+│   │   ├── filter_engine.py         # SQL WHERE clause builder
 │   │   └── knowledge/
-│   │       └── modality_map.json    # Curated concern→modality map
+│   │       └── modality_map.json    # Curated concern → evidence-based modality map
 │   ├── storage/
-│   │   ├── database.py              # PostgreSQL + pgvector async client
-│   │   ├── cache.py                 # Redis async client
+│   │   ├── database.py              # asyncpg PostgreSQL + pgvector client
+│   │   ├── cache.py                 # Redis async client + rate limiter
 │   │   └── migrations/001_initial.sql
 │   ├── api/
-│   │   ├── main.py                  # FastAPI app
+│   │   ├── main.py                  # FastAPI app + lifespan + middleware
 │   │   ├── routes/
-│   │   │   ├── search.py
-│   │   │   ├── feedback.py
-│   │   │   └── health.py
+│   │   │   ├── search.py            # POST /api/v1/search
+│   │   │   ├── feedback.py          # POST /api/v1/feedback
+│   │   │   └── health.py            # GET /health, /health/deep
 │   │   └── middleware/
-│   │       └── rate_limiter.py
+│   │       └── rate_limiter.py      # Redis sliding window rate limiter
 │   ├── monitoring/
 │   │   ├── metrics.py               # Prometheus metrics registry
-│   │   ├── tracing.py               # LangSmith integration
-│   │   └── evaluation.py            # Offline NDCG evaluation
+│   │   ├── tracing.py               # LangSmith config + structured logger
+│   │   └── evaluation.py            # Offline NDCG/MRR evaluation pipeline
 │   └── workflow/
-│       └── search_graph.py          # LangGraph search workflow
+│       └── search_graph.py          # LangGraph orchestration + sequential fallback
 ├── frontend/
-│   └── app.py                       # Streamlit UI
-├── tests/
-│   ├── unit/
-│   └── integration/
+│   └── app.py                       # Streamlit UI (search + score breakdown + feedback)
 ├── scripts/
-│   ├── ingest_small.py              # Scrape ~5 from each source (dev)
-│   ├── seed_data.py                 # Load synthetic data (no scraping)
+│   ├── ingest_small.py              # Scrape ~10 real therapists (dev)
+│   ├── seed_data.py                 # Load synthetic therapist data
 │   └── migrate.py                   # Run SQL migrations
-├── docker-compose.yml               # Local postgres + redis
+├── docker-compose.yml
 ├── requirements.txt
 └── .env.example
 ```

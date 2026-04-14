@@ -31,18 +31,15 @@ You are a clinical AI assistant helping match users with therapists.
 Extract structured information from the user's query.
 
 Your job:
-1. Identify emotional/psychological concerns (e.g., anxiety, grief, trauma)
-2. Map them to relevant therapist specializations
-3. Suggest evidence-based therapy modalities for those concerns
-4. Extract any logistical preferences (location, insurance, budget, format)
-5. Rate your confidence in the extraction
+1. Identify emotional/psychological concerns (e.g., anxiety, grief, trauma, burnout)
+2. Extract any logistical preferences implied by the query (location, insurance, budget, format)
+3. Rate your confidence in the extraction
 
 Rules:
 - Be conservative: only include concerns that are clearly present
-- Use exact enum values for modalities and specializations
-- If no filters are implied, leave them null (don't guess)
+- For concerns, use plain clinical language (e.g. "anxiety", "depression", "trauma")
+- If no logistical filters are implied, leave them null (don't guess)
 - Think like a clinical professional, not a consumer
-- The modality_weights should reflect evidence strength (1.0 = gold standard)
 """
 
 
@@ -60,6 +57,7 @@ class QueryProcessor:
         )
         self._model = settings.llm_model
         self._temperature = settings.llm_temperature  # Always 0 for extraction
+        self.last_tokens: int = 0  # token count from the most recent LLM call
 
     @traceable(name="query_processor.extract_intent")
     async def extract_intent(self, request: SearchRequest) -> ExtractedQueryIntent:
@@ -68,13 +66,16 @@ class QueryProcessor:
 
         If no free-text provided, derives intent from questionnaire only.
         Falls back gracefully if LLM call fails.
+        Token count is stored in self.last_tokens after each call.
         """
         if not request.free_text:
+            self.last_tokens = 0
             return self._intent_from_questionnaire(request.questionnaire)
 
         start = time.monotonic()
         try:
-            intent = await self._call_llm(request)
+            intent, tokens = await self._call_llm(request)
+            self.last_tokens = tokens
             # Merge LLM-inferred filters with explicit questionnaire filters
             # Explicit questionnaire always wins over LLM inference
             intent = self._merge_filters(intent, request.questionnaire)
@@ -84,14 +85,17 @@ class QueryProcessor:
 
         except Exception as exc:
             logger.error("Query processor failed: %s — falling back to questionnaire", exc)
+            self.last_tokens = 0
             return self._intent_from_questionnaire(request.questionnaire)
 
-    async def _call_llm(self, request: SearchRequest) -> ExtractedQueryIntent:
+    async def _call_llm(self, request: SearchRequest) -> tuple[ExtractedQueryIntent, int]:
         """
         Calls Anthropic via instructor with structured output schema.
 
         Key: response_model=ExtractedQueryIntent enforces valid JSON via tool-use.
         No parsing failures, no prompt engineering for JSON formatting.
+
+        Returns: (intent, tokens_used)
         """
         user_message = f"User query: {request.free_text}"
         if request.questionnaire:
@@ -119,11 +123,13 @@ class QueryProcessor:
             response_model=ExtractedQueryIntent,  # structured output
         )
 
+        tokens = 0
         usage = completion.usage
         if usage:
-            llm_tokens_used.inc(usage.input_tokens + usage.output_tokens)
+            tokens = usage.input_tokens + usage.output_tokens
+            llm_tokens_used.inc(tokens)
 
-        return response
+        return response, tokens
 
     @staticmethod
     def _intent_from_questionnaire(q: UserQuestionnaire) -> ExtractedQueryIntent:

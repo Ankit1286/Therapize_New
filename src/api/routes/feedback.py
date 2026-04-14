@@ -39,20 +39,22 @@ async def submit_feedback(feedback: FeedbackRequest) -> dict:
         )
 
         # Store in DB for evaluation pipeline
-        async with _repository._get_connection() if hasattr(_repository, '_get_connection') else __import__('contextlib').nullcontext() as _:
-            from src.storage.database import get_connection
-            async with get_connection() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO feedback (query_id, therapist_id, rating, booked, feedback_text)
-                    VALUES ($1, $2, $3, $4, $5)
-                    """,
-                    feedback.query_id,
-                    feedback.therapist_id,
-                    feedback.rating,
-                    feedback.booked_appointment,
-                    feedback.feedback_text,
-                )
+        from src.storage.database import get_connection
+        async with get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO feedback
+                    (query_id, therapist_id, rating, rank_position, event_type, booked, feedback_text)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """,
+                feedback.query_id,
+                feedback.therapist_id,
+                feedback.rating,
+                feedback.rank_position,
+                feedback.event_type,
+                feedback.booked_appointment,
+                feedback.feedback_text,
+            )
 
         return {"status": "recorded", "query_id": str(feedback.query_id)}
 

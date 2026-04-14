@@ -23,6 +23,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     EXCLUDED_PATHS = {"/health", "/health/deep", "/metrics", "/"}
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """
+        Check rate limit for each incoming request.
+
+        Passes excluded paths (health, metrics) through without checking.
+        Returns 429 with a Retry-After header if the client has exceeded the limit.
+        Attaches X-RateLimit-Remaining to allowed responses.
+        """
         # Skip non-API paths
         if request.url.path in self.EXCLUDED_PATHS:
             return await call_next(request)

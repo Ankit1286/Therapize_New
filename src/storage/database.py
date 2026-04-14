@@ -110,7 +110,7 @@ class TherapistRepository:
                     city, state, zip_code, county, latitude, longitude,
                     session_formats, insurance_providers, sliding_scale,
                     fee_min, fee_max, accepting_new_clients,
-                    bio, approach_description,
+                    bio,
                     rating, review_count, profile_completeness,
                     embedding, scraped_at, last_updated, is_active
                 ) VALUES (
@@ -119,9 +119,9 @@ class TherapistRepository:
                     $13, $14, $15, $16, $17, $18,
                     $19::session_format[], $20::insurance_provider[], $21,
                     $22, $23, $24,
-                    $25, $26,
-                    $27, $28, $29,
-                    $30::vector, $31, $32, $33
+                    $25,
+                    $26, $27, $28,
+                    $29::vector, $30, $31, $32
                 )
                 ON CONFLICT (source_url) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -132,7 +132,6 @@ class TherapistRepository:
                     fee_max = EXCLUDED.fee_max,
                     accepting_new_clients = EXCLUDED.accepting_new_clients,
                     bio = EXCLUDED.bio,
-                    approach_description = EXCLUDED.approach_description,
                     rating = EXCLUDED.rating,
                     review_count = EXCLUDED.review_count,
                     profile_completeness = EXCLUDED.profile_completeness,
@@ -165,7 +164,6 @@ class TherapistRepository:
                 therapist.fee_max,
                 therapist.accepting_new_clients,
                 therapist.bio,
-                therapist.approach_description,
                 therapist.rating,
                 therapist.review_count,
                 therapist.profile_completeness,
@@ -208,7 +206,7 @@ class TherapistRepository:
                 city, state, zip_code, county, latitude, longitude,
                 session_formats, insurance_providers, sliding_scale,
                 fee_min, fee_max, accepting_new_clients,
-                bio, approach_description,
+                bio,
                 rating, review_count, profile_completeness,
                 embedding,
                 scraped_at, last_updated, is_active
@@ -242,6 +240,7 @@ class TherapistRepository:
             return await conn.fetchval(query, *params)
 
     async def get_by_id(self, therapist_id: UUID) -> TherapistProfile | None:
+        """Fetch a single therapist by primary key. Returns None if not found."""
         async with get_connection() as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM therapists WHERE id = $1", therapist_id
@@ -256,6 +255,39 @@ class TherapistRepository:
             return True
         except Exception:
             return False
+
+    async def get_total_count(self) -> int:
+        """Return the total number of active therapists accepting new clients."""
+        async with get_connection() as conn:
+            return await conn.fetchval(
+                "SELECT COUNT(*) FROM therapists WHERE is_active = TRUE AND accepting_new_clients = TRUE"
+            )
+
+    async def get_languages(self) -> list[str]:
+        """Return distinct languages spoken by at least one active therapist, sorted alphabetically."""
+        async with get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT unnest(languages) AS lang
+                FROM therapists
+                WHERE is_active = TRUE
+                ORDER BY lang
+                """
+            )
+        return [row["lang"] for row in rows if row["lang"]]
+
+    async def get_cities(self) -> list[str]:
+        """Return distinct city names that have at least one active therapist, sorted alphabetically."""
+        async with get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT city
+                FROM therapists
+                WHERE is_active = TRUE AND city IS NOT NULL AND city <> ''
+                ORDER BY city
+                """
+            )
+        return [row["city"] for row in rows]
 
     async def log_search(
         self,
@@ -323,7 +355,6 @@ class TherapistRepository:
             fee_max=row["fee_max"],
             accepting_new_clients=row["accepting_new_clients"],
             bio=row["bio"] or "",
-            approach_description=row["approach_description"] or "",
             rating=float(row["rating"]) if row["rating"] else None,
             review_count=row["review_count"] or 0,
             profile_completeness=float(row["profile_completeness"] or 0),

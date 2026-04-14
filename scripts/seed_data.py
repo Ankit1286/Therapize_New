@@ -147,7 +147,6 @@ def _random_therapist() -> TherapistProfile:
         fee_max=fee_base + random.randint(20, 60),
         accepting_new_clients=random.random() > 0.1,
         bio=bio,
-        approach_description=f"I use {', '.join(m.value.replace('_', ' ') for m in modalities[:2])} to help clients with {', '.join(s.value.replace('_', ' ') for s in specs[:2])}.",
         rating=round(random.uniform(3.5, 5.0), 1),
         review_count=random.randint(0, 50),
         profile_completeness=round(random.uniform(0.5, 1.0), 2),

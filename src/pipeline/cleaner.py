@@ -48,8 +48,6 @@ class DataCleaner:
             bio = ""
         bio = bio[:self.MAX_BIO_LENGTH]
 
-        approach = self._clean_text(profile.approach_description)[:2000]
-
         # Sanity-check fees
         fee_min = profile.fee_min
         fee_max = profile.fee_max
@@ -59,13 +57,17 @@ class DataCleaner:
         if fee_max and fee_max > self.MAX_FEE:
             fee_max = fee_min
 
-        # Normalize city
-        city = profile.location.city.strip().title()
+        # Normalize city — strip whitespace, control chars, trailing punctuation
+        if profile.location.city:
+            import re
+            city = re.sub(r'[\x00-\x1f\u200b-\u200f]', '', profile.location.city)
+            city = city.strip().rstrip(',').strip().title() or None
+        else:
+            city = None
 
         return profile.model_copy(update={
             "name": name,
             "bio": bio,
-            "approach_description": approach,
             "fee_min": fee_min,
             "fee_max": fee_max,
             "location": profile.location.model_copy(update={"city": city}),

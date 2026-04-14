@@ -40,6 +40,7 @@ class EmbeddingStats:
     started_at: datetime = field(default_factory=datetime.utcnow)
 
     def log(self) -> None:
+        """Log a summary of the embedding run: totals for embedded, cached, and failed profiles plus elapsed time."""
         elapsed = (datetime.utcnow() - self.started_at).total_seconds()
         logger.info(
             "Embedding stats: total=%d, embedded=%d, cached=%d, failed=%d | "

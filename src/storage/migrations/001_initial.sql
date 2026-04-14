@@ -54,7 +54,7 @@ CREATE TABLE therapists (
     languages           TEXT[] DEFAULT '{}',
 
     -- Location
-    city                VARCHAR(100) NOT NULL,
+    city                VARCHAR(100),              -- NULL for telehealth-only therapists
     state               CHAR(2) NOT NULL DEFAULT 'CA',
     zip_code            VARCHAR(10),
     county              VARCHAR(100),
@@ -71,7 +71,6 @@ CREATE TABLE therapists (
 
     -- Content (searchable text)
     bio                 TEXT DEFAULT '',
-    approach_description TEXT DEFAULT '',
 
     -- Engagement
     rating              NUMERIC(3,2),
@@ -154,6 +153,8 @@ CREATE TABLE feedback (
     query_id        UUID REFERENCES search_queries(id),
     therapist_id    UUID REFERENCES therapists(id),
     rating          SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    rank_position   SMALLINT,           -- 1-based position in results when feedback was given
+    event_type      VARCHAR(20) NOT NULL DEFAULT 'explicit',  -- 'explicit' | 'profile_view'
     booked          BOOLEAN,
     feedback_text   TEXT,
     created_at      TIMESTAMPTZ DEFAULT NOW()
