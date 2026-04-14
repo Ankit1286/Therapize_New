@@ -23,9 +23,9 @@ sentence-transformers==3.0.1
 torch==2.3.0
 
 # LangGraph + LangSmith
-langgraph==0.1.14
-langsmith==0.1.77
-langchain-core==0.2.10
+langgraph>=0.1.14
+langsmith>=0.1.77
+langchain-core>=0.2.10
 
 # Numerical
 numpy==1.26.4
