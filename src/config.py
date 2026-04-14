@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # CORS — comma-separated list of allowed origins for production
     # e.g. "https://therapize.vercel.app" or "*" to allow all
-    allowed_origins_str: str = Field(default="https://therapize.app")
+    allowed_origins_str: str = Field(default="https://therapize.app", validation_alias="ALLOWED_ORIGINS")
 
     # ── LLM ──────────────────────────────────────────────────────────────
     anthropic_api_key: str = Field(..., description="Anthropic API key")
