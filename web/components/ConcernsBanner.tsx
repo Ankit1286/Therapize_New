@@ -8,7 +8,7 @@ export default function ConcernsBanner({ concerns }: ConcernsBannerProps) {
   return (
     <div className="flex flex-wrap items-center gap-2 p-4 rounded-xl bg-[#EBF4F7] border border-[#C5DFE8]">
       <span className="text-[#1A5276] font-semibold text-sm mr-1">
-        💙 Based on what you shared, we focused on therapists experienced with:
+        Based on what you shared, we focused on therapists experienced with:
       </span>
       {concerns.map((concern) => (
         <span

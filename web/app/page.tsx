@@ -124,7 +124,7 @@ export default function HomePage() {
         <main className="flex-1 min-w-0 space-y-6">
           <div className="rounded-2xl bg-gradient-to-br from-[#EBF6F9] via-[#F5F0EB] to-[#FAF7F4] p-8 border border-[var(--border)]">
             <h1 className="text-3xl font-bold text-[var(--text)] mb-4">
-              Find the right therapist for you
+              Find a therapist who gets you
             </h1>
             <SearchBar
               value={query}
