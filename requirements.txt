@@ -26,6 +26,7 @@ torch==2.3.0+cpu
 langgraph>=0.1.14
 langsmith>=0.1.77
 langchain-core>=0.2.10
+google-auth>=2.0.0
 
 # Numerical
 numpy==1.26.4
