@@ -80,7 +80,7 @@ app = FastAPI(
 # ── Middleware ──────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.environment == "development" else ["https://therapize.app"],
+    allow_origins=["*"] if settings.environment == "development" else settings.allowed_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
