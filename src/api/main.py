@@ -80,7 +80,7 @@ app = FastAPI(
 # ── Middleware ──────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.environment == "development" else settings.allowed_origins,
+    allow_origins=["*"] if settings.environment == "development" else [o.strip() for o in settings.allowed_origins_str.split(",") if o.strip()],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )

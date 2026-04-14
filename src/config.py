@@ -16,17 +16,9 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "production"] = "development"
     log_level: str = "INFO"
 
-    # CORS — which websites are allowed to call the API
-    # In production, set this to your Vercel URL, e.g. "https://therapize.vercel.app"
-    allowed_origins: list[str] = Field(default=["https://therapize.app"])
-
-    @field_validator("allowed_origins", mode="before")
-    @classmethod
-    def parse_origins(cls, v) -> list[str]:
-        """Accept either a comma-separated string or a list."""
-        if isinstance(v, str):
-            return [o.strip() for o in v.split(",") if o.strip()]
-        return v
+    # CORS — comma-separated list of allowed origins for production
+    # e.g. "https://therapize.vercel.app" or "*" to allow all
+    allowed_origins_str: str = Field(default="https://therapize.app")
 
     # ── LLM ──────────────────────────────────────────────────────────────
     anthropic_api_key: str = Field(..., description="Anthropic API key")
