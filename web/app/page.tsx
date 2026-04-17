@@ -65,6 +65,7 @@ export default function HomePage() {
     if (filters.sessionFormat !== 'any') questionnaire.session_format = filters.sessionFormat
     if (filters.gender) questionnaire.preferred_gender = filters.gender
     if (filters.language) questionnaire.preferred_language = filters.language
+    if (filters.ethnicity) questionnaire.preferred_ethnicity = filters.ethnicity
     if (filters.ageGroup) questionnaire.age_group = filters.ageGroup
 
     try {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { fetchCities, fetchLanguages } from '@/lib/api'
+import { fetchCities, fetchLanguages, fetchEthnicities } from '@/lib/api'
 
 export interface Filters {
   sessionFormat: 'any' | 'in_person' | 'telehealth'
@@ -10,6 +10,7 @@ export interface Filters {
   maxBudget: number
   gender: string
   language: string
+  ethnicity: string
   ageGroup: string
 }
 
@@ -20,6 +21,7 @@ const DEFAULT_FILTERS: Filters = {
   maxBudget: 0,
   gender: '',
   language: '',
+  ethnicity: '',
   ageGroup: '',
 }
 
@@ -92,10 +94,12 @@ function Select({
 export default function FilterSidebar({ filters, onChange, mobileOpen, onMobileClose }: Props) {
   const [cities, setCities] = useState<string[]>([])
   const [languages, setLanguages] = useState<string[]>([])
+  const [ethnicities, setEthnicities] = useState<string[]>([])
 
   useEffect(() => {
     fetchCities().then((c) => setCities(c))
     fetchLanguages().then((l) => setLanguages(l))
+    fetchEthnicities().then((e) => setEthnicities(e))
   }, [])
 
   function set<K extends keyof Filters>(key: K, val: Filters[K]) {
@@ -196,6 +200,18 @@ export default function FilterSidebar({ filters, onChange, mobileOpen, onMobileC
           options={GENDER_OPTIONS}
         />
       </div>
+
+      {/* Ethnicity */}
+      {ethnicities.length > 0 && (
+        <div>
+          <Label>Therapist ethnicity</Label>
+          <Select
+            value={filters.ethnicity}
+            onChange={(v) => set('ethnicity', v)}
+            options={[{ label: 'Any', value: '' }, ...ethnicities.map((e) => ({ label: e, value: e }))]}
+          />
+        </div>
+      )}
 
       {/* Language */}
       <div>

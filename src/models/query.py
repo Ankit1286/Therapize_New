@@ -26,6 +26,7 @@ class UserQuestionnaire(BaseModel):
     max_budget_per_session: Optional[int] = Field(None, ge=0)
     preferred_gender: Optional[str] = None
     preferred_language: Optional[str] = None
+    preferred_ethnicity: Optional[str] = None
     age_group: Optional[str] = None  # adult, adolescent, child
 
 

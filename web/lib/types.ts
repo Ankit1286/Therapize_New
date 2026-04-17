@@ -5,6 +5,7 @@ export interface UserQuestionnaire {
   max_budget_per_session?: number
   preferred_gender?: string
   preferred_language?: string
+  preferred_ethnicity?: string
   age_group?: string
 }
 

@@ -384,6 +384,13 @@ class OpenPathScraper:
             tax_ids.get("client_gender") or [],
         )
 
+        # Therapist gender — OpenPath lists this explicitly on profiles
+        gender_list = self._resolve_labels("therapist_gender", tax_ids.get("therapist_gender") or [])
+        gender = gender_list[0] if gender_list else None
+
+        # Therapist ethnicity/race
+        ethnicity = self._resolve_labels("ethnicity", tax_ids.get("ethnicity") or [])
+
         # Accepting new clients
         accepting_new = bool(hit.get("new_clients", 1))
 
@@ -402,6 +409,8 @@ class OpenPathScraper:
             specializations=specializations,
             populations_served=populations,
             languages=languages,
+            gender=gender,
+            ethnicity=ethnicity,
             location=location,
             session_formats=session_formats,
             # OpenPath therapists do not accept insurance — platform is self-pay

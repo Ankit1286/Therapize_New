@@ -49,6 +49,7 @@ class FilterCriteria:
     # Preferences
     preferred_gender: str | None = None
     preferred_language: str | None = None
+    preferred_ethnicity: str | None = None
 
     # Requirement — never relaxed in progressive fallback
     age_group: str | None = None
@@ -80,6 +81,7 @@ class FilterEngine:
             accepting_new_clients=True,  # always filter for active therapists
             preferred_gender=explicit.preferred_gender,
             preferred_language=explicit.preferred_language,
+            preferred_ethnicity=explicit.preferred_ethnicity,
             age_group=explicit.age_group,
         )
 
@@ -158,6 +160,17 @@ class FilterEngine:
         if criteria.preferred_gender:
             conditions.append(f"LOWER(gender) = LOWER(${idx})")
             params.append(criteria.preferred_gender)
+            idx += 1
+
+        # Ethnicity preference
+        if criteria.preferred_ethnicity:
+            conditions.append(
+                f"EXISTS ("
+                f"SELECT 1 FROM unnest(ethnicity) AS eth "
+                f"WHERE LOWER(eth) = LOWER(${idx})"
+                f")"
+            )
+            params.append(criteria.preferred_ethnicity)
             idx += 1
 
         # Language preference

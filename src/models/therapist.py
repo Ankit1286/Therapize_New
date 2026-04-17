@@ -116,6 +116,8 @@ class TherapistProfile(BaseModel):
     credentials: list[str] = Field(default_factory=list, description="e.g., ['LMFT', 'PhD']")
     license_number: Optional[str] = None
     years_experience: Optional[int] = None
+    gender: Optional[str] = None
+    ethnicity: list[str] = Field(default_factory=list)
 
     # Clinical
     modalities: list[TherapyModality] = Field(default_factory=list)

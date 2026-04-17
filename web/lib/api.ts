@@ -15,6 +15,12 @@ export async function fetchLanguages(): Promise<string[]> {
   return res.json()
 }
 
+export async function fetchEthnicities(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/ethnicities`, { next: { revalidate: 300 } })
+  if (!res.ok) return []
+  return res.json()
+}
+
 export async function fetchStats(): Promise<{ total_therapists: number }> {
   const res = await fetch(`${API_BASE}/stats`, { next: { revalidate: 3600 } })
   if (!res.ok) return { total_therapists: 0 }

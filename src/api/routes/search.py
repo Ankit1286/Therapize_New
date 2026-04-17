@@ -27,6 +27,12 @@ async def list_languages() -> list[str]:
     return await _repository.get_languages()
 
 
+@router.get("/ethnicities", response_model=list[str])
+async def list_ethnicities() -> list[str]:
+    """Return all distinct therapist ethnicities present in the database."""
+    return await _repository.get_ethnicities()
+
+
 @router.get("/stats", response_model=dict)
 async def get_stats() -> dict:
     """Return aggregate stats about the therapist database."""

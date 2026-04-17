@@ -105,7 +105,7 @@ class TherapistRepository:
                 """
                 INSERT INTO therapists (
                     id, source, source_url, source_id, name, credentials,
-                    license_number, years_experience,
+                    license_number, years_experience, gender, ethnicity,
                     modalities, specializations, populations_served, languages,
                     city, state, zip_code, county, latitude, longitude,
                     session_formats, insurance_providers, sliding_scale,
@@ -114,17 +114,19 @@ class TherapistRepository:
                     rating, review_count, profile_completeness,
                     embedding, scraped_at, last_updated, is_active
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8,
-                    $9::therapy_modality[], $10, $11, $12,
-                    $13, $14, $15, $16, $17, $18,
-                    $19::session_format[], $20::insurance_provider[], $21,
-                    $22, $23, $24,
-                    $25,
-                    $26, $27, $28,
-                    $29::vector, $30, $31, $32
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11::therapy_modality[], $12, $13, $14,
+                    $15, $16, $17, $18, $19, $20,
+                    $21::session_format[], $22::insurance_provider[], $23,
+                    $24, $25, $26,
+                    $27,
+                    $28, $29, $30,
+                    $31::vector, $32, $33, $34
                 )
                 ON CONFLICT (source_url) DO UPDATE SET
                     name = EXCLUDED.name,
+                    gender = EXCLUDED.gender,
+                    ethnicity = EXCLUDED.ethnicity,
                     modalities = EXCLUDED.modalities,
                     specializations = EXCLUDED.specializations,
                     insurance_providers = EXCLUDED.insurance_providers,
@@ -147,6 +149,8 @@ class TherapistRepository:
                 therapist.credentials,
                 therapist.license_number,
                 therapist.years_experience,
+                therapist.gender,
+                therapist.ethnicity,
                 [m.value for m in therapist.modalities],
                 [s.value for s in therapist.specializations],
                 therapist.populations_served,
@@ -201,7 +205,7 @@ class TherapistRepository:
         query = f"""
             SELECT
                 id, source, source_url, source_id, name, credentials,
-                license_number, years_experience,
+                license_number, years_experience, gender, ethnicity,
                 modalities, specializations, populations_served, languages,
                 city, state, zip_code, county, latitude, longitude,
                 session_formats, insurance_providers, sliding_scale,
@@ -276,6 +280,19 @@ class TherapistRepository:
             )
         return [row["lang"] for row in rows if row["lang"]]
 
+    async def get_ethnicities(self) -> list[str]:
+        """Return distinct ethnicities present in the database, sorted alphabetically."""
+        async with get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT unnest(ethnicity) AS eth
+                FROM therapists
+                WHERE is_active = TRUE
+                ORDER BY eth
+                """
+            )
+        return [row["eth"] for row in rows if row["eth"]]
+
     async def get_cities(self) -> list[str]:
         """Return distinct city names that have at least one active therapist, sorted alphabetically."""
         async with get_connection() as conn:
@@ -334,6 +351,8 @@ class TherapistRepository:
             credentials=list(row["credentials"] or []),
             license_number=row["license_number"],
             years_experience=row["years_experience"],
+            gender=row["gender"],
+            ethnicity=list(row["ethnicity"] or []),
             modalities=[TherapyModality(m) for m in (row["modalities"] or [])
                         if m in TherapyModality._value2member_map_],
             specializations=[TherapistSpecialization(s) for s in (row["specializations"] or [])
