@@ -15,7 +15,7 @@ export interface Filters {
 }
 
 const DEFAULT_FILTERS: Filters = {
-  sessionFormat: 'telehealth',
+  sessionFormat: 'any',
   city: '',
   insurance: '',
   maxBudget: 0,
@@ -145,8 +145,8 @@ export default function FilterSidebar({ filters, onChange, mobileOpen, onMobileC
         </div>
       </div>
 
-      {/* City — only when not telehealth */}
-      {filters.sessionFormat !== 'telehealth' && (
+      {/* City */}
+      {cities.length > 0 && (
         <div>
           <Label>City</Label>
           <Select

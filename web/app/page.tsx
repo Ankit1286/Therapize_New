@@ -15,7 +15,7 @@ import type { SearchResponse } from '@/lib/types'
 const SESSION_ID = uuidv4()
 
 const DEFAULT_FILTERS: Filters = {
-  sessionFormat: 'telehealth',
+  sessionFormat: 'any',
   city: '',
   insurance: '',
   maxBudget: 0,

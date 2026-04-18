@@ -109,19 +109,13 @@ class FilterEngine:
         params.append(criteria.accepting_new_clients)
         idx += 1
 
-        # City filter logic:
-        # - telehealth/both: skip entirely (therapists serve all of CA)
-        # - in_person + city: exact city match only
-        # - any format + city: city match OR telehealth-only (city IS NULL) therapists
+        # City filter: always applied as a hard filter when set.
+        # Matches therapists physically based in the selected city, regardless of
+        # session format. Telehealth users may still want a therapist from their city.
         if criteria.city:
-            if criteria.session_format in (SessionFormat.TELEHEALTH, SessionFormat.BOTH):
-                pass  # no location filter for telehealth
-            elif criteria.session_format == SessionFormat.IN_PERSON:
-                conditions.append(f"LOWER(city) = LOWER(${idx})")
-                params.append(criteria.city)
-                idx += 1
-            # else: "any" format — city is a ranking signal only, not a hard filter;
-            # all CA therapists are candidates and the ranker boosts the preferred city
+            conditions.append(f"LOWER(city) = LOWER(${idx})")
+            params.append(criteria.city)
+            idx += 1
 
         # Zip code filter
         if criteria.zip_code:
