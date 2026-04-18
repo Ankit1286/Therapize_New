@@ -152,6 +152,64 @@ _SESSION_TYPE_IDS: dict[int, str] = {
 }
 
 
+# Known OpenPath ethnicity labels, sorted longest-first so greedy prefix matching
+# works correctly for labels that contain commas (e.g. "Native American, Indigenous, …").
+KNOWN_ETHNICITY_LABELS: list[str] = sorted(
+    [
+        "Native American, Indigenous, or Alaska Native",
+        "Native Hawaiian or other Pacific Islander",
+        "South Asian or South Asian American",
+        "Middle Eastern or North African",
+        "Asian or Asian American",
+        "Black or African American",
+        "Multiracial or Multiethnic",
+        "Hispanic or Latino",
+        "White",
+    ],
+    key=len,
+    reverse=True,
+)
+
+
+def split_ethnicities(raw: str) -> list[str]:
+    """
+    Split a comma-joined OpenPath ethnicity string into individual labels.
+
+    OpenPath renders multiple ethnicities on a single line separated by ", ".
+    Some labels themselves contain commas ("Native American, Indigenous, or Alaska Native"),
+    so a simple split(",") would break them. This function matches greedily against
+    the known label set (longest first) to handle those cases.
+
+    Examples::
+
+        split_ethnicities("Hispanic or Latino, White")
+        → ["Hispanic or Latino", "White"]
+
+        split_ethnicities("Native American, Indigenous, or Alaska Native, White")
+        → ["Native American, Indigenous, or Alaska Native", "White"]
+    """
+    result: list[str] = []
+    remaining = raw.strip()
+    while remaining:
+        matched = False
+        for label in KNOWN_ETHNICITY_LABELS:
+            if remaining.lower().startswith(label.lower()):
+                result.append(label)
+                remaining = remaining[len(label):].lstrip(", ").strip()
+                matched = True
+                break
+        if not matched:
+            # Unknown label — take up to the next ", " or the whole remainder
+            sep = remaining.find(", ")
+            if sep != -1:
+                result.append(remaining[:sep].strip())
+                remaining = remaining[sep + 2:]
+            else:
+                result.append(remaining.strip())
+                remaining = ""
+    return result
+
+
 class OpenPathScraper:
     """
     Scraper for OpenPath Collective therapist directory.
@@ -842,7 +900,12 @@ class OpenPathScraper:
             if label == "gender":
                 gender = value
             elif label == "race/ethnicity":
-                ethnicity = [v.strip() for v in value.split("\n") if v.strip()]
+                # OpenPath writes multiple ethnicities comma-separated on one line.
+                # split_ethnicities() handles labels that themselves contain commas.
+                raw_lines = [v.strip() for v in value.split("\n") if v.strip()]
+                ethnicity = []
+                for line in raw_lines:
+                    ethnicity.extend(split_ethnicities(line))
 
         return gender, ethnicity
 
