@@ -22,6 +22,7 @@ export interface TherapistResult {
   city?: string
   session_formats: string[]
   accepts_insurance: string[]
+  sliding_scale: boolean
   fee_range?: string
   matched_modalities: string[]
   bio_excerpt: string

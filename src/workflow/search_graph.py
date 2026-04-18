@@ -579,6 +579,7 @@ class SearchWorkflow:
             city=t.location.city,
             session_formats=t.session_formats,
             accepts_insurance=t.accepts_insurance,
+            sliding_scale=t.sliding_scale,
             fee_range=fee_range,
             matched_modalities=scored.matched_modalities,
             bio_excerpt=t.bio[:300] + "..." if len(t.bio) > 300 else t.bio,

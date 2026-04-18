@@ -88,6 +88,11 @@ export default function TherapistCard({
                     ✓ Accepts {insuranceDisplay}
                   </span>
                 )}
+                {therapist.sliding_scale && (
+                  <span className="ml-2 text-teal-700 font-medium">
+                    ↕ Sliding scale
+                  </span>
+                )}
               </p>
             </div>
           </div>

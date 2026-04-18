@@ -85,6 +85,7 @@ class TherapistResult(BaseModel):
     city: Optional[str] = None
     session_formats: list[SessionFormat]
     accepts_insurance: list[InsuranceProvider]
+    sliding_scale: bool = False
     fee_range: Optional[str] = None  # e.g. "$120-$180"
     matched_modalities: list[str] = Field(
         description="Modalities that matched the user's concerns"
