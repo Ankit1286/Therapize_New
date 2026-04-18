@@ -329,6 +329,18 @@ class TherapistRepository:
                 therapist_id,
             )
 
+    async def update_gender_ethnicity(
+        self, therapist_id, gender: str | None, ethnicity: list[str]
+    ) -> None:
+        """Update gender and ethnicity fields for a single therapist."""
+        async with get_connection() as conn:
+            await conn.execute(
+                "UPDATE therapists SET gender = $1, ethnicity = $2, last_updated = NOW() WHERE id = $3",
+                gender,
+                ethnicity,
+                therapist_id,
+            )
+
     async def set_accepting_new_clients(self, therapist_id, value: bool) -> None:
         """Update the accepting_new_clients flag for a single therapist."""
         async with get_connection() as conn:
