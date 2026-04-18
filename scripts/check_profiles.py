@@ -21,8 +21,14 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+# Ensure repo root is on sys.path so `src` package is importable
+import sys
+_repo_root = Path(__file__).parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 # Load .env before importing src modules so DATABASE_URL etc. are available
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_dotenv(_repo_root / ".env")
 
 from src.storage.database import TherapistRepository, close_db, init_db  # noqa: E402
 

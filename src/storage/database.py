@@ -315,9 +315,19 @@ class TherapistRepository:
         return [dict(r) for r in rows]
 
     async def delete_by_id(self, therapist_id) -> None:
-        """Hard-delete a therapist record by primary key."""
+        """
+        Soft-delete a therapist by marking them inactive.
+
+        Uses is_active=FALSE rather than a hard DELETE so that feedback records
+        referencing this therapist are preserved (foreign key constraint).
+        Active queries all filter on is_active=TRUE, so the record disappears
+        from all search results.
+        """
         async with get_connection() as conn:
-            await conn.execute("DELETE FROM therapists WHERE id = $1", therapist_id)
+            await conn.execute(
+                "UPDATE therapists SET is_active = FALSE, accepting_new_clients = FALSE, last_updated = NOW() WHERE id = $1",
+                therapist_id,
+            )
 
     async def set_accepting_new_clients(self, therapist_id, value: bool) -> None:
         """Update the accepting_new_clients flag for a single therapist."""
