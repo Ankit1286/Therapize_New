@@ -384,12 +384,10 @@ class OpenPathScraper:
             tax_ids.get("client_gender") or [],
         )
 
-        # Therapist gender — OpenPath lists this explicitly on profiles
-        gender_list = self._resolve_labels("therapist_gender", tax_ids.get("therapist_gender") or [])
-        gender = gender_list[0] if gender_list else None
-
-        # Therapist ethnicity/race
-        ethnicity = self._resolve_labels("ethnicity", tax_ids.get("ethnicity") or [])
+        # Gender and ethnicity are extracted from HTML profile pages during bio
+        # enrichment — set empty here, populated in _enrich_one
+        gender = None
+        ethnicity = []
 
         # Accepting new clients
         accepting_new = bool(hit.get("new_clients", 1))
@@ -758,8 +756,12 @@ class OpenPathScraper:
                     profile.profile_completeness = min(
                         1.0, profile.profile_completeness + 0.15
                     )
-                    return True
-                return False
+                gender, ethnicity = self._parse_gender_ethnicity_from_html(resp.text)
+                if gender:
+                    profile.gender = gender
+                if ethnicity:
+                    profile.ethnicity = ethnicity
+                return bool(bio)
             except Exception as exc:
                 logger.debug(
                     "%s: bio fetch failed for %s: %s",
@@ -803,6 +805,41 @@ class OpenPathScraper:
             return max(candidates, key=len)
 
         return ""
+
+    def _parse_gender_ethnicity_from_html(
+        self, html: str
+    ) -> tuple[str | None, list[str]]:
+        """
+        Extract therapist gender and ethnicity from an OpenPath profile HTML page.
+
+        OpenPath profile pages render these as labeled <p> blocks:
+            <p><span>Gender</span><br>Woman</p>
+            <p><span>Race/ethnicity</span><br>Asian or Asian American</p>
+
+        Returns: (gender, ethnicity_list)
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        gender: str | None = None
+        ethnicity: list[str] = []
+
+        for p in soup.find_all("p"):
+            span = p.find("span")
+            if not span:
+                continue
+            label = span.get_text(strip=True).lower()
+            # Value is the text node after the <br>, strip the span text from full p text
+            value = p.get_text(separator="\n", strip=True)
+            value = value.replace(span.get_text(strip=True), "").strip()
+            if not value:
+                continue
+
+            if label == "gender":
+                gender = value
+            elif label == "race/ethnicity":
+                # May be a single value or newline-separated list
+                ethnicity = [v.strip() for v in value.split("\n") if v.strip()]
+
+        return gender, ethnicity
 
     # ── Completeness scoring ──────────────────────────────────────────────────
 
