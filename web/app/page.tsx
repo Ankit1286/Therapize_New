@@ -21,6 +21,7 @@ const DEFAULT_FILTERS: Filters = {
   maxBudget: 0,
   gender: '',
   language: '',
+  ethnicity: '',
   ageGroup: '',
 }
 
