@@ -827,16 +827,21 @@ class OpenPathScraper:
             if not span:
                 continue
             label = span.get_text(strip=True).lower()
-            # Value is the text node after the <br>, strip the span text from full p text
-            value = p.get_text(separator="\n", strip=True)
-            value = value.replace(span.get_text(strip=True), "").strip()
+            # Get text nodes that come after the <br> tag (avoids span text collision)
+            br = p.find("br")
+            if not br:
+                continue
+            value = "".join(
+                str(node).strip()
+                for node in br.next_siblings
+                if isinstance(node, str) and node.strip()
+            ).strip()
             if not value:
                 continue
 
             if label == "gender":
                 gender = value
             elif label == "race/ethnicity":
-                # May be a single value or newline-separated list
                 ethnicity = [v.strip() for v in value.split("\n") if v.strip()]
 
         return gender, ethnicity

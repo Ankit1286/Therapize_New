@@ -40,9 +40,11 @@ const INSURANCE_OPTIONS = [
 
 const GENDER_OPTIONS = [
   { label: 'Any', value: '' },
-  { label: 'Female', value: 'female' },
-  { label: 'Male', value: 'male' },
-  { label: 'Non-binary', value: 'non_binary' },
+  { label: 'Woman', value: 'Woman' },
+  { label: 'Man', value: 'Man' },
+  { label: 'Non-binary', value: 'Nonbinary' },
+  { label: 'Transgender', value: 'Transgender' },
+  { label: 'Genderfluid', value: 'Genderfluid' },
 ]
 
 const AGE_OPTIONS = [
