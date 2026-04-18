@@ -146,10 +146,10 @@ class FilterEngine:
             params.append(criteria.session_format.value)
             idx += 1
 
-        # Budget filter (use fee_min — if their minimum fee is within budget)
+        # Budget filter — sliding scale therapists always pass since their rate is negotiable
         if criteria.max_budget:
             conditions.append(
-                f"(fee_min IS NULL OR fee_min <= ${idx})"
+                f"(fee_min IS NULL OR fee_min <= ${idx} OR sliding_scale = TRUE)"
             )
             params.append(criteria.max_budget)
             idx += 1
