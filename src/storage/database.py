@@ -306,6 +306,28 @@ class TherapistRepository:
             )
         return [row["city"] for row in rows]
 
+    async def get_all_for_audit(self) -> list[dict]:
+        """Return id, source_url, source, name, accepting_new_clients for all active records."""
+        async with get_connection() as conn:
+            rows = await conn.fetch(
+                "SELECT id, source_url, source, name, accepting_new_clients FROM therapists WHERE is_active = TRUE"
+            )
+        return [dict(r) for r in rows]
+
+    async def delete_by_id(self, therapist_id) -> None:
+        """Hard-delete a therapist record by primary key."""
+        async with get_connection() as conn:
+            await conn.execute("DELETE FROM therapists WHERE id = $1", therapist_id)
+
+    async def set_accepting_new_clients(self, therapist_id, value: bool) -> None:
+        """Update the accepting_new_clients flag for a single therapist."""
+        async with get_connection() as conn:
+            await conn.execute(
+                "UPDATE therapists SET accepting_new_clients = $1, last_updated = NOW() WHERE id = $2",
+                value,
+                therapist_id,
+            )
+
     async def log_search(
         self,
         query_id: UUID,
