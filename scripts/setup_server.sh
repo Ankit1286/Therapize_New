@@ -73,7 +73,7 @@ After=network.target
 User=therapize
 WorkingDirectory=/opt/therapize
 EnvironmentFile=/etc/therapize.env
-ExecStart=/opt/therapize/venv/bin/uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --workers 2
+ExecStart=/opt/therapize/venv/bin/uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 
