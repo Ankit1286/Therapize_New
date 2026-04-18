@@ -123,15 +123,19 @@ class FilterEngine:
             params.append(criteria.zip_code)
             idx += 1
 
-        # Insurance filter — uses PostgreSQL array overlap operator (&&)
+        # Insurance filter
         if criteria.insurance and criteria.insurance != InsuranceProvider.SELF_PAY:
-            # Accept therapists who take the specified insurance OR sliding scale
-            conditions.append(
-                f"(insurance_providers @> ARRAY[${idx}::insurance_provider] "
-                f"OR ${idx + 1}::insurance_provider = ANY(insurance_providers))"
-            )
-            params.extend([criteria.insurance.value, InsuranceProvider.SLIDING_SCALE.value])
-            idx += 2
+            if criteria.insurance == InsuranceProvider.SLIDING_SCALE:
+                # User explicitly wants sliding scale — check the boolean column
+                conditions.append("sliding_scale = TRUE")
+            else:
+                # Accept therapists who take the specified insurance OR offer sliding scale.
+                # sliding_scale is a boolean column, not stored in insurance_providers array.
+                conditions.append(
+                    f"(${idx}::insurance_provider = ANY(insurance_providers) OR sliding_scale = TRUE)"
+                )
+                params.append(criteria.insurance.value)
+                idx += 1
 
         # Session format filter
         if criteria.session_format and criteria.session_format != SessionFormat.BOTH:
