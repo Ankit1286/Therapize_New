@@ -360,15 +360,16 @@ class SearchWorkflow:
         from copy import copy
 
         # Save original values for labels — criteria is mutated across steps
-        orig_budget   = criteria.max_budget
-        orig_insurance = criteria.insurance
-        orig_city     = criteria.city
-        orig_language = criteria.preferred_language
-        orig_gender   = criteria.preferred_gender
-        orig_age_group = criteria.age_group  # preserved in every step
+        orig_budget         = criteria.max_budget
+        orig_session_format = criteria.session_format
+        orig_insurance      = criteria.insurance
+        orig_city           = criteria.city
+        orig_gender         = criteria.preferred_gender
+        orig_ethnicity      = criteria.preferred_ethnicity
+        orig_language       = criteria.preferred_language
+        orig_age_group      = criteria.age_group  # preserved in every step
 
         dropped_labels: list[str] = []
-        skipped_city_inperson: bool = False
 
         async def _fetch(c: FilterCriteria, *, final: bool = False) -> tuple[list, list]:
             where, params = self._filter_engine.build_sql_where(c)
@@ -380,30 +381,18 @@ class SearchWorkflow:
                 top_k=top_k,
             )
 
-        def _note(*, suggest_telehealth: bool = False) -> str:
-            """Build the user-facing warning from the accumulated drop labels.
-
-            suggest_telehealth is only True at the final safety net, when we've
-            exhausted all relaxations and city was the blocker.
-            """
-            if not dropped_labels and not suggest_telehealth:
+        def _note() -> str:
+            """Build the user-facing warning from the accumulated drop labels."""
+            if not dropped_labels:
                 return ""
-            parts = []
-            if dropped_labels:
-                if len(dropped_labels) == 1:
-                    label_str = dropped_labels[0]
-                else:
-                    label_str = ", ".join(dropped_labels[:-1]) + f" and {dropped_labels[-1]}"
-                parts.append(
-                    f"We couldn't find enough therapists with all your preferences, "
-                    f"so we broadened your search a little by removing {label_str}."
-                )
-            if suggest_telehealth:
-                parts.append(
-                    "We couldn't find in-person therapists nearby matching your preferences. "
-                    "You might find more options by switching to online (telehealth)."
-                )
-            return " ".join(parts)
+            if len(dropped_labels) == 1:
+                label_str = dropped_labels[0]
+            else:
+                label_str = ", ".join(dropped_labels[:-1]) + f" and {dropped_labels[-1]}"
+            return (
+                f"We couldn't find enough therapists with all your preferences, "
+                f"so we broadened your search a little by removing {label_str}."
+            )
 
         # ── Step 1: drop budget ───────────────────────────────────────────
         if criteria.max_budget:
@@ -416,7 +405,20 @@ class SearchWorkflow:
                 logger.info("Progressive relax stopped at budget (%d candidates)", len(candidates))
                 return candidates, embeddings, _note()
 
-        # ── Step 2: drop insurance ────────────────────────────────────────
+        # ── Step 2: drop session format ───────────────────────────────────
+        # Relaxed before insurance so insurance-accepting (in-person) therapists
+        # are reachable even when user started with telehealth.
+        if criteria.session_format:
+            relaxed = copy(criteria)
+            relaxed.session_format = None
+            candidates, embeddings = await _fetch(relaxed)
+            dropped_labels.append("your session format preference")
+            criteria = relaxed
+            if len(candidates) >= 3:
+                logger.info("Progressive relax stopped at session_format (%d candidates)", len(candidates))
+                return candidates, embeddings, _note()
+
+        # ── Step 3: drop insurance ────────────────────────────────────────
         if criteria.insurance:
             relaxed = copy(criteria)
             relaxed.insurance = None
@@ -428,12 +430,10 @@ class SearchWorkflow:
                 logger.info("Progressive relax stopped at insurance (%d candidates)", len(candidates))
                 return candidates, embeddings, _note()
 
-        # ── Step 3: drop city ─────────────────────────────────────────────
-        # Never drop city for in-person: the user cannot see a therapist
-        # in another city, so relaxing location produces unusable results.
-        if criteria.city and criteria.session_format == SessionFormat.IN_PERSON:
-            skipped_city_inperson = True
-        elif criteria.city:
+        # ── Step 4: drop city ─────────────────────────────────────────────
+        # Session format is already relaxed by this point so dropping city
+        # is always safe — it simply broadens geography.
+        if criteria.city:
             relaxed = copy(criteria)
             relaxed.city = None
             relaxed.zip_code = None
@@ -442,19 +442,6 @@ class SearchWorkflow:
             criteria = relaxed
             if len(candidates) >= 3:
                 logger.info("Progressive relax stopped at city (%d candidates)", len(candidates))
-                return candidates, embeddings, _note()
-
-        # ── Step 4: drop language ─────────────────────────────────────────
-        if criteria.preferred_language:
-            relaxed = copy(criteria)
-            relaxed.preferred_language = None
-            candidates, embeddings = await _fetch(relaxed)
-            dropped_labels.append(
-                f"your language preference ({orig_language.title()})"
-            )
-            criteria = relaxed
-            if len(candidates) >= 3:
-                logger.info("Progressive relax stopped at language (%d candidates)", len(candidates))
                 return candidates, embeddings, _note()
 
         # ── Step 5: drop gender ───────────────────────────────────────────
@@ -468,21 +455,39 @@ class SearchWorkflow:
                 logger.info("Progressive relax stopped at gender (%d candidates)", len(candidates))
                 return candidates, embeddings, _note()
 
+        # ── Step 6: drop ethnicity ────────────────────────────────────────
+        if criteria.preferred_ethnicity:
+            relaxed = copy(criteria)
+            relaxed.preferred_ethnicity = None
+            candidates, embeddings = await _fetch(relaxed)
+            dropped_labels.append(f"your ethnicity preference ({orig_ethnicity})")
+            criteria = relaxed
+            if len(candidates) >= 3:
+                logger.info("Progressive relax stopped at ethnicity (%d candidates)", len(candidates))
+                return candidates, embeddings, _note()
+
+        # ── Step 7: drop language ─────────────────────────────────────────
+        # Language is a functional requirement (can't do therapy without a shared
+        # language) so it's kept as long as possible before the safety net.
+        if criteria.preferred_language:
+            relaxed = copy(criteria)
+            relaxed.preferred_language = None
+            candidates, embeddings = await _fetch(relaxed)
+            dropped_labels.append(f"your language preference ({orig_language.title()})")
+            criteria = relaxed
+            if len(candidates) >= 3:
+                logger.info("Progressive relax stopped at language (%d candidates)", len(candidates))
+                return candidates, embeddings, _note()
+
         # ── Final safety net: CA + accepting_new_clients + age_group only ─
         # age_group is a requirement — never dropped.
-        # For in-person, also preserve city + session_format so we don't
-        # return therapists the user cannot physically visit.
-        in_person = criteria.session_format == SessionFormat.IN_PERSON
         fallback = FilterCriteria(
             state="CA",
             accepting_new_clients=True,
             age_group=orig_age_group,
-            city=orig_city if in_person else None,
-            session_format=SessionFormat.IN_PERSON if in_person else None,
         )
         candidates, embeddings = await _fetch(fallback, final=True)
-        # Only suggest telehealth if we couldn't find enough even at the safety net
-        note = _note(suggest_telehealth=skipped_city_inperson and len(candidates) < 3)
+        note = _note()
         if not note:
             note = "We couldn't find enough therapists with your preferences, so we broadened your search to show you the best matches across California."
         logger.info("Progressive relax reached safety net (%d candidates)", len(candidates))
