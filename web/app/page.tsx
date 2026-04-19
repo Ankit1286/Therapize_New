@@ -101,7 +101,7 @@ export default function HomePage() {
       <header className="border-b border-[var(--border)] bg-white/80 backdrop-blur-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div>
-            <span className="text-xl font-bold text-[var(--primary)]">💙 Therapize</span>
+            <span className="text-xl font-bold text-[var(--primary)]">Therapize</span>
           </div>
           {/* Mobile filter toggle */}
           <button
