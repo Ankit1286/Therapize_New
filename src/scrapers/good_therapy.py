@@ -20,6 +20,7 @@ HTML structure notes:
 - Bio: largest paragraph block in the page content area.
 - City: inferred from the URL path segment (/therapists/ca/{city}/...).
 """
+import json
 import logging
 import re
 from urllib.parse import urljoin, urlparse
@@ -363,7 +364,8 @@ class GoodTherapyScraper(BaseScraper):
         specializations = self._extract_specializations(sections)
 
         # ── Insurance ─────────────────────────────────────────────────────────
-        insurance, sliding_scale = self._extract_insurance(soup, sections)
+        next_data = self._get_next_data(soup)
+        insurance, sliding_scale = self._extract_insurance(soup, sections, next_data)
 
         # ── Location ─────────────────────────────────────────────────────────
         location = self._extract_location(url, soup)
@@ -597,26 +599,82 @@ class GoodTherapyScraper(BaseScraper):
 
     # ── Insurance extraction ──────────────────────────────────────────────────
 
+    @staticmethod
+    def _get_next_data(soup: BeautifulSoup) -> dict:
+        """Extract the __NEXT_DATA__ JSON profile blob embedded by Next.js, or empty dict."""
+        try:
+            script = soup.find("script", {"id": "__NEXT_DATA__"})
+            if script:
+                return json.loads(script.string)["props"]["pageProps"]["profile"]
+        except Exception:
+            pass
+        return {}
+
     def _extract_insurance(
-        self, soup: BeautifulSoup, sections: list[Tag]
+        self, soup: BeautifulSoup, sections: list[Tag], next_data: dict | None = None
     ) -> tuple[list[InsuranceProvider], bool]:
         """
-        Extract accepted insurance providers.
+        Extract accepted insurance providers and sliding scale flag.
+
+        Reads from __NEXT_DATA__ JSON first (authoritative source since GoodTherapy
+        migrated to Next.js). Falls back to HTML parsing if JSON is unavailable.
 
         Returns (insurance_list, sliding_scale_flag).
-
-        GoodTherapy shows insurance info either in a ``div.mb-6`` section or
-        in a ``div.profileTour_fitToContent`` element. We check both.
         """
-        # Try dedicated insurance section first
+        if next_data:
+            return self._extract_insurance_from_json(next_data)
+        return self._extract_insurance_from_html(soup, sections)
+
+    def _extract_insurance_from_json(
+        self, profile: dict
+    ) -> tuple[list[InsuranceProvider], bool]:
+        """Parse insurance from the __NEXT_DATA__ JSON profile object."""
+        sliding = bool(profile.get("slidingScale", False))
+        raw_list: list[str] = profile.get("insuranceCompaniesList") or []
+        providers: list[InsuranceProvider] = []
+        for name in raw_list:
+            mapped = self._map_insurance_name(name)
+            if mapped and mapped not in providers:
+                providers.append(mapped)
+        return providers, sliding
+
+    @staticmethod
+    def _map_insurance_name(name: str) -> InsuranceProvider | None:
+        """Map a JSON insurance company name to an InsuranceProvider enum value."""
+        lower = name.lower()
+        mapping = [
+            ("blue cross blue shield", InsuranceProvider.BLUE_CROSS),
+            ("anthem blue cross", InsuranceProvider.BLUE_CROSS),
+            ("bluecross", InsuranceProvider.BLUE_CROSS),
+            ("blue cross", InsuranceProvider.BLUE_CROSS),
+            ("blue shield of california", InsuranceProvider.BLUE_SHIELD),
+            ("blue shield", InsuranceProvider.BLUE_SHIELD),
+            ("optum/united", InsuranceProvider.UNITED),
+            ("united behavioral health", InsuranceProvider.UNITED),
+            ("unitedhealthcare", InsuranceProvider.UNITED),
+            ("united health care", InsuranceProvider.UNITED),
+            ("optum health", InsuranceProvider.OPTUM),
+            ("optum", InsuranceProvider.OPTUM),
+            ("aetna", InsuranceProvider.AETNA),
+            ("cigna", InsuranceProvider.CIGNA),
+            ("kaiser", InsuranceProvider.KAISER),
+            ("magellan", InsuranceProvider.MAGELLAN),
+            ("out of network", InsuranceProvider.OUT_OF_NETWORK),
+        ]
+        for fragment, provider in mapping:
+            if fragment in lower:
+                return provider
+        return None
+
+    def _extract_insurance_from_html(
+        self, soup: BeautifulSoup, sections: list[Tag]
+    ) -> tuple[list[InsuranceProvider], bool]:
+        """HTML fallback for insurance extraction (used when __NEXT_DATA__ is absent)."""
         insurance_section = self._find_section(sections, _SECTION_INSURANCE)
         insurance_text = ""
         if insurance_section:
-            insurance_text = insurance_section.get_text(
-                separator=" ", strip=True
-            ).lower()
+            insurance_text = insurance_section.get_text(separator=" ", strip=True).lower()
         else:
-            # Fallback to fee/payment div
             fee_div = soup.select_one(SELECTORS["fee_div"])
             if fee_div:
                 insurance_text = fee_div.get_text(separator=" ", strip=True).lower()
@@ -627,7 +685,6 @@ class GoodTherapyScraper(BaseScraper):
         providers: list[InsuranceProvider] = []
         sliding = False
 
-        # Explicit "does not accept insurance" → self-pay only
         if (
             "don't accept insurance" in insurance_text
             or "do not accept insurance" in insurance_text
@@ -644,7 +701,6 @@ class GoodTherapyScraper(BaseScraper):
                     providers.append(provider)
 
         if not providers and not sliding:
-            # No recognized insurance → assume out-of-network / self-pay
             if "out of network" in insurance_text or "out-of-network" in insurance_text:
                 providers.append(InsuranceProvider.OUT_OF_NETWORK)
             elif "self" in insurance_text or "private pay" in insurance_text:
