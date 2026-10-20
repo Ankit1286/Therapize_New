@@ -77,7 +77,7 @@ class TestHybridRanker:
         therapist_with_gottman = make_therapist(modalities=[TherapyModality.GOTTMAN])
 
         # Use identical embeddings so modality is the differentiator
-        embedding = [0.1] * 1536
+        embedding = [0.1] * 384
         recommended_modalities = {"cognitive_behavioral_therapy": 1.0}
 
         results = self.ranker.rank(
@@ -93,12 +93,12 @@ class TestHybridRanker:
     def test_returns_all_candidates(self):
         """Ranker should return same number of candidates as input."""
         therapists = [make_therapist(f"Therapist {i}") for i in range(10)]
-        embeddings = [[0.1] * 1536] * 10
+        embeddings = [[0.1] * 384] * 10
 
         results = self.ranker.rank(
             candidates=therapists,
             query_text="help with anxiety",
-            query_embedding=[0.1] * 1536,
+            query_embedding=[0.1] * 384,
             candidate_embeddings=embeddings,
             recommended_modalities={"cognitive_behavioral_therapy": 1.0},
         )
@@ -108,12 +108,12 @@ class TestHybridRanker:
     def test_scores_in_valid_range(self):
         """All composite scores should be in [0, 1]."""
         therapists = [make_therapist() for _ in range(5)]
-        embeddings = [[float(i) / 1536] * 1536 for i in range(5)]
+        embeddings = [[float(i) / 384] * 384 for i in range(5)]
 
         results = self.ranker.rank(
             candidates=therapists,
             query_text="anxiety",
-            query_embedding=[0.5] * 1536,
+            query_embedding=[0.5] * 384,
             candidate_embeddings=embeddings,
             recommended_modalities={"cognitive_behavioral_therapy": 1.0},
         )
@@ -124,12 +124,12 @@ class TestHybridRanker:
     def test_sorted_descending(self):
         """Results should be sorted by composite score, highest first."""
         therapists = [make_therapist() for _ in range(5)]
-        embeddings = [[float(i) / 1536] * 1536 for i in range(5)]
+        embeddings = [[float(i) / 384] * 384 for i in range(5)]
 
         results = self.ranker.rank(
             candidates=therapists,
             query_text="help with anxiety",
-            query_embedding=[0.5] * 1536,
+            query_embedding=[0.5] * 384,
             candidate_embeddings=embeddings,
             recommended_modalities={"cognitive_behavioral_therapy": 0.9},
         )
@@ -141,7 +141,7 @@ class TestHybridRanker:
         results = self.ranker.rank(
             candidates=[],
             query_text="anxiety",
-            query_embedding=[0.1] * 1536,
+            query_embedding=[0.1] * 384,
             candidate_embeddings=[],
             recommended_modalities={},
         )
