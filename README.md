@@ -13,8 +13,8 @@
 │                         DATA PIPELINE                               │
 │                                                                     │
 │  OpenPath Collective ──► Algolia API (JSON) ──┐                     │
-│  GoodTherapy ──────────► HTML scraping ───────┼──► Cleaner ──► DB   │
-│                          (httpx + BS4)        │              │      │
+│  GoodTherapy ──────────► HTML + __NEXT_DATA__ ┼──► Cleaner ──► DB   │
+│                          JSON (httpx)         │              │      │
 │                               │               │              ▼      │
 │                         Rate Limiter          │    PostgreSQL +     │
 │                         Robots.txt check      │     pgvector        │
@@ -44,7 +44,7 @@
 │           │            │     cosine_sim(query_emb, profile_emb)│     │
 │           │            │  5. BM25 Lexical Score      (0.15)    │     │
 │           │            │  6. Quality Score            (0.10)   │     │
-│           │            │     rating × profile completeness     │     │
+│           │            │     rating + profile completeness     │     │
 │           └───────────►│  → composite score, sorted descending │     │
 │                        └──────────────────────────────────────┘     │
 └──────────────────────────────────────────┬──────────────────────────┘
@@ -56,12 +56,14 @@
 │   POST /api/v1/feedback ──► Feedback Store                          │
 │   GET  /api/v1/cities   ──► Distinct cities in DB                   │
 │   GET  /api/v1/languages──► Distinct languages in DB                │
+│   GET  /api/v1/ethnicities ► Distinct ethnicities in DB             │
 │   GET  /api/v1/stats    ──► Total active therapist count            │
-│   GET  /health          ──► DB + cache ping                         │
+│   GET  /health          ──► Liveness check (always 200 if up)       │
+│   GET  /health/deep     ──► DB + cache ping                         │
 └──────────────────────────────────────────┬──────────────────────────┘
                                            │
 ┌──────────────────────────────────────────▼──────────────────────────┐
-│                       FRONTEND (Next.js 14)                          │
+│                       FRONTEND (Next.js 16)                          │
 │                                                                     │
 │  web/  — React + TypeScript + Tailwind CSS                          │
 │  Sticky filter sidebar · Rank-based fit badges · Score breakdown    │
@@ -90,13 +92,16 @@ POST /api/v1/search { free_text, questionnaire }
 3. **Embed query** — `all-MiniLM-L6-v2` (local, 384-dim). Zero API cost.
 
 4. **Progressive filter fallback** — tries increasingly relaxed filters until ≥ 3 results:
-   - Step 1: all filters applied
-   - Step 2: drop budget
+   - Step 0: all filters applied
+   - Step 1: drop budget
+   - Step 2: drop session format (in-person / telehealth)
    - Step 3: drop insurance
-   - Step 4: drop language preference
+   - Step 4: drop city
    - Step 5: drop gender preference
-   - Safety net: state=CA only (keeps city+format for in-person; never relaxes city for in-person searches)
-   - If in-person + city yields < 3 results, suggests switching to telehealth
+   - Step 6: drop ethnicity preference
+   - Step 7: drop language preference (kept longest — therapy needs a shared language)
+   - Safety net: CA + accepting new clients + age group only (age group is never dropped)
+   - Each dropped filter is listed in a note shown to the user
 
 5. **Filter + vector search** (single DB round-trip)
    ```sql
@@ -117,7 +122,9 @@ POST /api/v1/search { free_text, questionnaire }
      **breadth penalty** (`log(8)/log(n+3)` — discounts therapists listing many modalities)
    - **Semantic score** (0.35): cosine similarity of query + profile embeddings
    - **BM25** (0.15): keyword overlap on therapist bios
-   - **Quality** (0.10): log-dampened rating × profile completeness
+   - **Quality** (0.10): 0.6 × log-dampened rating + 0.4 × profile completeness
+   - **Location** (0.15, only when a city is given): boosts therapists in that city;
+     the other weights scale down to 0.35 / 0.30 / 0.13 / 0.07
 
 8. **Response** — top 10 results with score breakdown, fit label (rank-based),
    matched modalities, bio excerpt, and narrative match explanation.
@@ -144,10 +151,15 @@ Two corrections applied in `hybrid_ranker.py`:
 - **Breadth penalty**: `min(1.0, log(8)/log(n+3))` — no penalty for ≤5 modalities,
   increasing discount above that. Rewards specialists over generalists.
 
-### Progressive filter fallback with in-person city protection
-Filter relaxation never drops city for in-person searches — it would be
-meaningless to show a therapist 200 miles away. Instead, if too few in-person
-results are found, the user is prompted to consider telehealth.
+### Progressive filter fallback (least personal filters first)
+When fewer than 3 therapists match, filters are relaxed one at a time, starting
+with practical constraints (budget, session format, insurance) and ending with
+personal preferences (gender, ethnicity, language). Session format is relaxed
+before insurance so insurance-accepting in-person therapists stay reachable for
+telehealth searches, and before city so that dropping city doesn't surface
+far-away in-person-only results. Language is kept longest because therapy needs
+a shared language, and age group is never dropped. The response tells the user
+exactly which filters were relaxed.
 
 ### Rank-based fit labels (not score-based)
 Min-max normalisation causes composite scores to cluster in a narrow band,
@@ -190,7 +202,7 @@ Step 3 — Hybrid Scoring (per candidate therapist):
                   × breadth_penalty             ← rewards specialists
   semantic_score  = cosine_sim(query_embedding, profile_embedding)
   bm25_score      = bm25(query_tokens, therapist_bio_text)
-  quality_score   = log_dampened_rating × profile_completeness
+  quality_score   = 0.6 × log_dampened_rating + 0.4 × profile_completeness
 
   composite = 0.40×mod + 0.35×sem + 0.15×bm25 + 0.10×quality
   → top 10, rank-based fit labels: #1 Strong fit, #2–3 Good fit, etc.
@@ -250,7 +262,7 @@ web/
     SkeletonCard.tsx  ← loading placeholder
     EmptyState.tsx    ← example prompt chips before first search
   lib/
-    api.ts            ← typed fetch functions for all 5 endpoints
+    api.ts            ← typed fetch functions for all 6 endpoints
     types.ts          ← TypeScript interfaces matching API schema
 ```
 
@@ -265,9 +277,10 @@ warm sand sidebar (`#EDE8E3`). Rank accent borders: gold / silver / bronze / tea
 `query_processor.extract_intent` span with extracted intent, concerns, and filters.
 Set `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` in `.env` to enable.
 
-**Prometheus** — metrics at `/metrics`:
+**Prometheus** — metrics exposed at `/metrics` (a Prometheus server is not
+included; point one, or a hosted service like Grafana Cloud, at this endpoint):
 - `therapize_search_latency_ms` — P50/P99 latency histogram
-- `therapize_llm_tokens_total` — cumulative token spend
+- `therapize_llm_tokens_total` / `therapize_llm_cost_usd_total` — cumulative token spend
 - `therapize_cache_hits_total` / `misses` — cache hit rate
 - `therapize_modality_match_score` — distribution of top-result modality scores
 - `therapize_candidates_after_filter` — filter restrictiveness signal
@@ -280,13 +293,17 @@ Precision@5 from the `feedback` table. Run after ranking weight changes to catch
 ## Cost Estimation
 
 Per 1,000 queries (no cache hits):
-- Claude Haiku extraction: ~800 tokens × $0.00000025 ≈ **$0.20**
+- Claude Haiku 4.5 extraction: ~1,700 tokens per query at $1 / 1M input and
+  $5 / 1M output ≈ **$2–3**
 - `all-MiniLM-L6-v2` embedding: local, **$0**
-- **Total: ~$0.20 per 1,000 queries**
+- **Total: ~$2–3 per 1,000 queries**
 
-With ~60% cache hit rate: effective cost drops to **~$0.08 per 1,000 queries**.
+Repeated queries within the 1-hour cache TTL cost $0, so the effective cost is
+lower in proportion to the cache hit rate.
 
-Infrastructure: Neon free tier (500MB) + Upstash free tier (10k commands/day) = **$0/month** for low-traffic deployments.
+Infrastructure: GCP e2-micro (Always Free tier in `us-west1` / `us-central1` /
+`us-east1`), Vercel Hobby, Neon free tier and Upstash free tier ≈ **$0/month**
+for low-traffic deployments, plus a small GCP charge for the static external IP.
 
 ---
 
@@ -324,43 +341,75 @@ Therapize/
 │   ├── scrapers/
 │   │   ├── base.py                  # Abstract scraper (retry, rate-limit, robots.txt)
 │   │   ├── open_path.py             # Algolia API scraper (OpenPath Collective)
-│   │   └── good_therapy.py          # HTML scraper (GoodTherapy.org)
+│   │   └── good_therapy.py          # GoodTherapy.org scraper (reads __NEXT_DATA__ JSON)
 │   ├── pipeline/
-│   │   ├── ingestion.py             # Orchestrates scraping → embed → DB upsert
+│   │   ├── ingestion.py             # Orchestrates scraping → clean → embed → DB upsert
+│   │   ├── cleaner.py               # Normalises scraped profiles
 │   │   └── embeddings.py            # Local sentence-transformers embedding pipeline
 │   ├── matching/
 │   │   ├── query_processor.py       # LLM extraction (concerns + inferred filters)
-│   │   ├── hybrid_ranker.py         # 4-signal composite scorer + bio-corroboration
+│   │   ├── modality_mapper.py       # Concerns → weighted modalities via modality_map.json
+│   │   ├── hybrid_ranker.py         # 4-signal composite scorer (+ location signal) + bio-corroboration
 │   │   ├── filter_engine.py         # Progressive SQL WHERE clause builder
 │   │   └── knowledge/
 │   │       └── modality_map.json    # Curated concern → evidence-based modality map
 │   ├── storage/
 │   │   ├── database.py              # asyncpg PostgreSQL + pgvector client
 │   │   ├── cache.py                 # Redis async client + rate limiter
-│   │   └── migrations/001_initial.sql
+│   │   └── migrations/              # 001_initial.sql, 002_add_ethnicity.sql
 │   ├── api/
 │   │   ├── main.py                  # FastAPI app + lifespan + CORS + middleware
 │   │   ├── routes/
-│   │   │   ├── search.py            # POST /search, GET /cities, /languages, /stats
+│   │   │   ├── search.py            # POST /search, GET /cities, /languages, /ethnicities, /stats
 │   │   │   ├── feedback.py          # POST /api/v1/feedback
 │   │   │   └── health.py            # GET /health, /health/deep
 │   │   └── middleware/
 │   │       └── rate_limiter.py      # Redis sliding window rate limiter
 │   ├── monitoring/
 │   │   ├── metrics.py               # Prometheus metrics registry
+│   │   ├── evaluation.py            # Offline evaluation pipeline (NDCG, MRR, P@5)
 │   │   └── tracing.py               # LangSmith config + structured logger
 │   └── workflow/
 │       └── search_graph.py          # LangGraph orchestration + progressive fallback
-├── web/                             # Next.js 14 frontend (see Frontend section)
+├── web/                             # Next.js 16 frontend (see Frontend section)
+├── tests/unit/                      # pytest: hybrid ranker + modality mapper
 ├── scripts/
-│   ├── migrate.py                   # Run SQL migrations (required at startup)
+│   ├── setup_dev.py                 # One-command dev setup (migrations + small scrape)
+│   ├── migrate.py                   # Run SQL migrations
 │   ├── seed_data.py                 # Load synthetic therapist data
+│   ├── ingest_small.py              # Small scrape (~5 per source) for local dev
 │   ├── run_ingestion.py             # Full-scale scraping pipeline
+│   ├── check_profiles.py            # Weekly health check: deactivate stale/404 profiles
+│   ├── enrich_insurance.py          # Backfill insurance + sliding scale (GoodTherapy)
+│   ├── enrich_gender_ethnicity.py   # Backfill gender/ethnicity (OpenPath)
 │   ├── evaluate_ranker.py           # Offline NDCG/MRR evaluation
 │   ├── online_metrics.py            # Live query performance tracking
 │   ├── clean_cities.py              # Data quality: fix city name typos
-│   └── verify_db.py                 # DB health check + stats
-├── railway.toml                     # Railway deployment config
+│   ├── verify_db.py                 # DB health check + stats
+│   ├── setup_server.sh              # One-shot GCP VM setup (venv, systemd, nginx)
+│   └── weekly_update.sh             # git pull → ingestion → profile health check
+├── railway.toml, Procfile           # Legacy Railway config (not used by current deployment)
 ├── requirements.txt
 └── .env.example
 ```
+
+---
+
+## Deployment
+
+| Part | Where | Notes |
+|---|---|---|
+| Frontend (`web/`) | Vercel | `NEXT_PUBLIC_API_BASE_URL` points at the backend's HTTPS URL |
+| Backend (FastAPI) | GCP Compute Engine e2-micro, Ubuntu 22.04 | Set up with `scripts/setup_server.sh`: uvicorn under systemd behind nginx |
+| HTTPS | Let's Encrypt via certbot | `certbot --nginx -d <domain>`; renews automatically |
+| Domain | DuckDNS | Points at the VM's static external IP |
+| Database | Neon (Postgres + pgvector) | `DATABASE_URL` |
+| Cache / rate limiter | Upstash Redis | `REDIS_URL` must use `rediss://` (TLS) |
+
+Server config lives in `/etc/therapize.env` (`ANTHROPIC_API_KEY`, `DATABASE_URL`,
+`REDIS_URL`, `ALLOWED_ORIGINS`, optional `LANGCHAIN_*`). Restart with
+`sudo systemctl restart therapize` after editing it.
+
+`scripts/weekly_update.sh` needs the same environment variables, so schedule it
+with a systemd timer whose service unit sets `EnvironmentFile=/etc/therapize.env`
+(a plain cron job won't load them).
